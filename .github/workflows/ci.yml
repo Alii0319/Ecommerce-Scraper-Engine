@@ -1,45 +1,45 @@
-# name: Ecommerce Scraper Engine CI
+name: Ecommerce Scraper Engine CI
 
-# on:
-#   push:
-#     branches: [ "main" ]
-#   pull_request:
-#     branches: [ "main" ]
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
-# jobs:
-#   production-grade-ci:
-#     runs-on: ubuntu-latest
-#     steps:
-#       - name: Checkout Code
-#         uses: actions/checkout@v4
+jobs:
+  production-grade-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-#       # GitHub Secret se secure password utha kar temporary .env file banana
-#       - name: Inject Production Secrets into Env File
-#         run: |
-#           echo "DB_USER=postgres" >> .env
-#           echo "DB_NAME=scraper_db" >> .env
-#           echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
-#           cp .env backend/.env # Django backend workspace ke liye copy
+      # GitHub Secret se secure password utha kar temporary .env file banana
+      - name: Inject Production Secrets into Env File
+        run: |
+          echo "DB_USER=postgres" >> .env
+          echo "DB_NAME=scraper_db" >> .env
+          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
+          cp .env backend/.env # Django backend workspace ke liye copy
 
-#       # Pure stack (Postgres, Redis, Django, Celery, Celery Beat, React) ko zero se fresh build aur run karna
-#       - name: Spin up Full Production Stack with Docker Compose
-#         run: |
-#           docker compose up -d --build
+      # Pure stack (Postgres, Redis, Django, Celery, Celery Beat, React) ko zero se fresh build aur run karna
+      - name: Spin up Full Production Stack with Docker Compose
+        run: |
+          docker compose up -d --build
 
-#       # 30 seconds wait karna takay Postgres aur Redis ke healthchecks pass ho sakein aur saare containers active ho jayein
-#       - name: Verify Multi-Container Architecture Health Status
-#         run: |
-#           echo "Waiting for all microservices to pass health checks..."
-#           sleep 30
-#           docker compose ps
+      # 30 seconds wait karna takay Postgres aur Redis ke healthchecks pass ho sakein aur saare containers active ho jayein
+      - name: Verify Multi-Container Architecture Health Status
+        run: |
+          echo "Waiting for all microservices to pass health checks..."
+          sleep 30
+          docker compose ps
           
-#       # Agar koi container (jaise Celery ya Django) build error ya runtime error ki wajah se crash ho, toh logs print karna
-#       - name: Print Microservices Logs on Failure
-#         if: failure()
-#         run: |
-#           docker compose logs
+      # Agar koi container (jaise Celery ya Django) build error ya runtime error ki wajah se crash ho, toh logs print karna
+      - name: Print Microservices Logs on Failure
+        if: failure()
+        run: |
+          docker compose logs
 
-#       # Test complete hone par pure production stack ko down karna aur volumes saaf karna (Clean DevOps practice)
-#       - name: Tear Down Production Stack
-#         run: |
-#           docker compose down -v
+      # Test complete hone par pure production stack ko down karna aur volumes saaf karna (Clean DevOps practice)
+      - name: Tear Down Production Stack
+        run: |
+          docker compose down -v
