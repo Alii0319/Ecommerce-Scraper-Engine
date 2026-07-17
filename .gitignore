@@ -1,0 +1,23 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Environment files
+.env
+.env.*
+!.env.example
+*.local
+
+# Local runtime artifacts
+*.log
+*.pid
+*.tmp
+*.swp
+
+docker-compose.override.yml
+
+db-data/

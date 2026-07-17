@@ -1,0 +1,84 @@
+services:
+  web:
+    build: ./backend/
+    image: ecommerce-scraper-engine-backend:latest  
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env 
+    depends_on:
+      - db
+      - redis
+    networks:
+      - scraper-network
+    restart: always
+
+  frontend:
+    build: ./frontend/ 
+    image: ecommerce-scraper-engine-frontend:latest
+    ports:
+      - "80:80"
+    networks:
+      - scraper-network
+    depends_on:
+      - web
+    restart: always
+
+  db:
+    image: postgres:13
+    env_file:
+      - .env 
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - scraper-network
+    restart: always
+
+  redis:
+    image: redis:6
+    networks:
+      - scraper-network
+    ports:
+      - "6379:6379"
+    restart: always
+  
+  celery:
+    build: ./backend/                 
+    image: ecommerce-scraper-engine-backend:latest  
+    command: celery -A core worker --loglevel=info
+    env_file:
+      - .env 
+    depends_on:
+      - db
+      - redis
+      - web
+    networks:
+      - scraper-network
+    restart: always
+
+  celery-beat:
+    build: ./backend/                 
+    image: ecommerce-scraper-engine-backend:latest  
+    command: celery -A core beat --loglevel=info
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+      - celery
+    networks:
+      - scraper-network
+    restart: always
+
+volumes:
+  db-data:
+
+networks:
+  scraper-network:
+    driver: bridge
