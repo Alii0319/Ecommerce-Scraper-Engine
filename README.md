@@ -49,8 +49,9 @@ Ensure the following software is installed on your system with the exact version
    ```
 
 2. **Configure Environment Variables**:
-   Create a `.env` file in the root directory (used by Docker Compose) and copy it to the `backend/` directory:
+   Create a `.env` file in the root directory from the provided `.env.example` template and copy it to the `backend/` directory:
    ```bash
+   cp .env.example .env
    cp .env backend/.env
    ```
    *Note: Ensure `DB_HOST` and `REDIS_HOST` are set to `127.0.0.1` if running services natively, or keep `db` and `redis` if running services through Docker.*
@@ -108,8 +109,9 @@ Ensure the following software is installed on your system with the exact version
    ```
 
 2. **Configure Environment Variables**:
-   Create a `.env` file in the root directory and copy it to `backend\`:
+   Create a `.env` file in the root directory from the `.env.example` template and copy it to `backend\`:
    ```powershell
+   copy .env.example .env
    copy .env backend\.env
    ```
 
@@ -230,18 +232,7 @@ ecommerce-scraper-engine/
 │   ├── tailwind.config.js # Styling configurations for Tailwind utility classes
 │   └── tsconfig.json      # TypeScript build rules
 ├── docker-compose.yml     # Docker Compose orchestration file
-└── .env                   # Local configuration environment settings file
+├── .env                   # Local configuration environment settings file
+└── .env.example           # Template environment configuration file
 ```
 
-## License
-
-This project is **not specified** (no `LICENSE` file was found in the repository).
-
----
-
-## TODOs / Missing Information
-
-The following items were not located or specified in the repository codebase and should be addressed for completeness:
-1. **`.env.example` file**: There is no `.env.example` template file in the repository root. A template `.env.example` should be added to help onboard developers without exposing default production keys.
-2. **License**: No `LICENSE` file is included in the project root. A license (e.g., MIT, Apache 2.0) should be explicitly chosen and added.
-3. **Frontend environment configuration file**: No default `.env` or `.env.example` exists in the `frontend/` directory to explicitly document the availability of the `VITE_API_BASE_URL` setting.
