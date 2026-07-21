@@ -85,3 +85,46 @@ This file records the completed remediation phases for the next agent or reviewe
 - **Completed At**: 2026-07-21
 - **Actions Taken**:
   - Updated `frontend/nginx.conf` with reverse proxy rules for `/api/` (HTTP/1.1) and `/ws/` (WebSocket Upgrade/Connection headers).
+
+## Phase 12: Upgrade GitHub Actions CI
+- **Completed At**: 2026-07-21
+- **Actions Taken**:
+  - Rewrote `.github/workflows/ci.yml` with a real test pipeline.
+  - CI now runs: `docker compose build`, Django `check`, `makemigrations --check`, `manage.py test`, `manage.py check --deploy`, frontend `typecheck + build`, and a full stack `docker compose up`.
+
+## Phase 13: Tests — Scraper, WebSocket, SSRF, Isolation
+- **Completed At**: 2026-07-21
+- **Test Results**: **17 / 17 passing**
+- **Actions Taken**:
+  - Added `ScraperTaskTests` — threshold crossing, duplicate prevention, new lower price alerting, `should_send_threshold_alert` unit tests (all mocked, no browser).
+  - Added `SSRFValidationTests` — private IP, loopback IP, link-local IP, and invalid scheme rejection.
+  - Added `WebSocketConsumerTests` — token missing (4401), token invalid (4403), valid token connects and receives structured v1 alert payload.
+
+## Phase 14: Security Settings & Throttling
+- **Completed At**: 2026-07-21
+- **Actions Taken**:
+  - Added DRF `AnonRateThrottle` (100/day) and `UserRateThrottle` (1000/day).
+  - Added non-DEBUG security headers: `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_CONTENT_TYPE_NOSNIFF`, `X_FRAME_OPTIONS=DENY`, HSTS (1 year), `SECURE_PROXY_SSL_HEADER`.
+
+## Phase 15: Validation & Database Constraints
+- **Completed At**: 2026-07-21
+- **Actions Taken**:
+  - Added `UniqueConstraint(user, target_url)` to `TrackedProduct`.
+  - Added `CheckConstraint(notification_threshold >= 0)` and `CheckConstraint(price >= 0)`.
+  - Added indexes `(user, is_active)` and `(product, scraped_at)`.
+  - Generated and applied migration `0003`.
+
+## Phase 16: Logging & Observability
+- **Completed At**: 2026-07-21
+- **Actions Taken**:
+  - Added structured `LOGGING` dict to `backend/core/settings.py`.
+  - Timestamp + level + logger name format for `django`, `celery`, and `trackers` loggers.
+  - Level controlled via `DJANGO_LOG_LEVEL` environment variable (defaults to `INFO`).
+
+## Phase 17: Deployment & Documentation Updates
+- **Completed At**: 2026-07-21
+- **Actions Taken**:
+  - Fixed `drf_spectacular` W001 warning: added `@extend_schema_field` to `get_domain_name` in `TrackedProductSerializer`.
+  - Fixed `drf_spectacular` W002 warning: added `@extend_schema(responses=...)` with `inline_serializer` to `AnalyticsSummaryView`.
+  - Created `docs/production_readiness_audit.md` with architecture summary, WebSocket v1 contract reference, security summary, and test results.
+  - `manage.py check --deploy` reduced to 2 intentional warnings (TLS handled by Nginx; production secret key set via env).
