@@ -300,6 +300,10 @@ export const authService = {
     const response = await api.post<TokenResponseShape>('auth/login/', payload);
     return normalizeTokenResponse(response.data);
   },
+  getWsTicket: async (): Promise<{ ticket: string; expires_at: string }> => {
+    const response = await api.post<{ ticket: string; expires_at: string }>('auth/ws-ticket/');
+    return response.data;
+  },
   refresh: async (refreshToken: string): Promise<AuthTokens> => {
     const response = await api.post<TokenResponseShape>('auth/refresh/', { refresh: refreshToken });
     return normalizeTokenResponse(response.data);

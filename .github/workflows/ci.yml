@@ -38,33 +38,67 @@ jobs:
       - name: Build services
         run: docker compose build
 
-      - name: Start dependencies and backend
-        run: docker compose up -d --wait db redis web
+      - name: Run single-owner database migrations
+        run: docker compose up -d db redis && docker compose run --rm migrate
 
-      - name: Django checks
+      - name: Start backend service
+        run: docker compose up -d --wait web celery celery-beat
+
+      - name: Django system checks
         run: docker compose exec -T web python manage.py check
 
-      - name: Check migrations
+      - name: Check no pending migrations
         run: docker compose exec -T web python manage.py makemigrations --check --dry-run
 
       - name: Backend tests
         run: docker compose exec -T web python manage.py test
 
-      - name: Deployment checks
+      - name: Django deployment checks
         run: docker compose exec -T web python manage.py check --deploy
 
-      - name: Frontend lint, typecheck, and build
+      - name: Verify only migrate service ran migrations
+        run: |
+          echo "=== migrate service logs ==="
+          docker compose logs migrate --no-color
+          echo "=== web service logs (should have NO migrate lines) ==="
+          WEB_LOGS=$(docker compose logs web --no-color)
+          echo "$WEB_LOGS"
+          if echo "$WEB_LOGS" | grep -q "Applying.*migrations"; then
+            echo "FAILURE: web service ran migrations — only migrate service should do this!" >&2
+            exit 1
+          fi
+
+      - name: Verify health endpoints
+        run: |
+          docker compose exec -T web python -c "
+          import urllib.request
+          live = urllib.request.urlopen('http://localhost:8000/api/health/live/', timeout=5)
+          ready = urllib.request.urlopen('http://localhost:8000/api/health/ready/', timeout=5)
+          assert live.status == 200, f'Liveness check failed: {live.status}'
+          assert ready.status == 200, f'Readiness check failed: {ready.status}'
+          print('Health checks passed')
+          "
+
+      - name: Frontend lint and typecheck
         run: |
           docker run --rm \
             -v "$PWD/frontend:/app" \
             -w /app \
             node:20-alpine \
-            sh -c "npm ci && npm run lint && npm run build"
+            sh -c "npm ci && npm run lint && npx tsc --noEmit"
 
-      - name: Full Compose startup
+      - name: Frontend build
+        run: |
+          docker run --rm \
+            -v "$PWD/frontend:/app" \
+            -w /app \
+            node:20-alpine \
+            sh -c "npm ci && npm run build"
+
+      - name: Full Compose startup verification
         run: docker compose up -d --wait
 
-      - name: Verify services
+      - name: Verify all services are healthy
         run: docker compose ps
 
       - name: Logs

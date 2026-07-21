@@ -6,20 +6,30 @@ from playwright.sync_api import (
     sync_playwright,
 )
 
-from .exceptions import ScrapeError
+from .exceptions import ScrapeError, UnsafeTargetUrlError
 from .validator import validate_public_url
 
 logger = logging.getLogger(__name__)
 
 
 def _configure_page(page: Page) -> None:
-    def route_handler(route):
-        if route.request.resource_type in {"image", "font", "media"}:
-            route.abort()
-        else:
-            route.continue_()
+    def secure_route(route):
+        request = route.request
 
-    page.route("**/*", route_handler)
+        if request.resource_type in {"image", "font", "media"}:
+            route.abort()
+            return
+
+        try:
+            validate_public_url(request.url)
+        except UnsafeTargetUrlError as exc:
+            logger.warning(f"Aborted unsafe subrequest/navigation to {request.url}: {exc}")
+            route.abort("blockedbyclient")
+            return
+
+        route.continue_()
+
+    page.route("**/*", secure_route)
     page.set_default_navigation_timeout(30_000)
     page.set_default_timeout(10_000)
 
@@ -50,8 +60,17 @@ def fetch_rendered_html(url: str) -> str:
                 timeout=30_000,
             )
 
-            if response is not None and response.status >= 400:
-                raise ScrapeError(f"Target returned HTTP {response.status}")
+            if response is not None:
+                # Walk the redirect chain and validate every URL
+                curr_request = response.request
+                while curr_request:
+                    validate_public_url(curr_request.url)
+                    curr_request = curr_request.redirected_from
+
+                validate_public_url(page.url)
+
+                if response.status >= 400:
+                    raise ScrapeError(f"Target returned HTTP {response.status}")
 
             try:
                 page.wait_for_load_state("networkidle", timeout=10_000)

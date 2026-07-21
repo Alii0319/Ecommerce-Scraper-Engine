@@ -48,8 +48,14 @@ class TrackedProductViewSet(viewsets.ModelViewSet):
 
 
 @require_GET
-def health_check(request):
-    """Liveness + readiness probe: verifies DB and Redis connectivity."""
+def liveness_check(request):
+    """Liveness probe: verifies process is running without hitting DB/Redis."""
+    return JsonResponse({"status": "live"})
+
+
+@require_GET
+def readiness_check(request):
+    """Readiness probe: verifies database and Redis cluster connectivity."""
     try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")
@@ -59,6 +65,12 @@ def health_check(request):
             redis_client = Redis.from_url(settings.REDIS_URL, socket_timeout=2)
             redis_client.ping()
 
-        return JsonResponse({"status": "ok"})
+        return JsonResponse({"status": "ready"})
     except Exception:
-        return JsonResponse({"status": "unhealthy"}, status=503)
+        return JsonResponse({"status": "degraded"}, status=503)
+
+
+@require_GET
+def health_check(request):
+    """Backward compatible health endpoint mapping to readiness probe."""
+    return readiness_check(request)

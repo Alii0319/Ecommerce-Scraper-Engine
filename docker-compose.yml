@@ -37,6 +37,21 @@ services:
     networks:
       - scraper-network
 
+  migrate:
+    build: ./backend
+    image: ecommerce-scraper-engine-backend:latest
+    env_file:
+      - .env
+    command: ["sh", "-c", "python manage.py migrate --noinput && python manage.py collectstatic --noinput"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - scraper-network
+
   web:
     build: ./backend
     image: ecommerce-scraper-engine-backend:latest
@@ -51,6 +66,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test:
         [
@@ -76,6 +93,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - scraper-network
 
@@ -91,6 +110,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - scraper-network
 

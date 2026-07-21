@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { authService } from "../services/api";
 
 export interface AlertPayload {
+  alert_type?: string;
   product_id: number;
   history_id: number;
   product_name: string;
@@ -11,8 +13,9 @@ export interface AlertPayload {
 }
 
 export interface AlertEvent {
-  type: "price_threshold_alert";
-  version: 1;
+  type: "price_alert" | "price_threshold_alert";
+  version: 1 | 2;
+  event_id?: string;
   data: AlertPayload;
 }
 
@@ -66,8 +69,8 @@ function isAlertEvent(value: unknown): value is AlertEvent {
   const data = event.data as Partial<AlertPayload> | undefined;
 
   return (
-    event.type === "price_threshold_alert" &&
-    event.version === 1 &&
+    (event.type === "price_alert" || event.type === "price_threshold_alert") &&
+    (event.version === 1 || event.version === 2) &&
     !!data &&
     typeof data.product_id === "number" &&
     typeof data.history_id === "number" &&
@@ -113,8 +116,9 @@ export function useWebSocketAlerts(explicitToken?: string | null): UseWebSocketA
   const addAlertFromEvent = useCallback(
     (event: AlertEvent) => {
       const payload = event.data;
+      const alertId = event.event_id || String(payload.history_id);
       const alert: AlertItem = {
-        id: String(payload.history_id),
+        id: alertId,
         productId: payload.product_id,
         historyId: payload.history_id,
         productName: payload.product_name,
@@ -147,7 +151,7 @@ export function useWebSocketAlerts(explicitToken?: string | null): UseWebSocketA
     [notifyBrowser]
   );
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     const token = explicitToken !== undefined ? explicitToken : getStoredAccessToken();
 
     if (!token || !shouldReconnectRef.current) {
@@ -164,7 +168,19 @@ export function useWebSocketAlerts(explicitToken?: string | null): UseWebSocketA
 
     setConnectionState("connecting");
 
-    const url = `${getWebSocketBaseUrl()}/ws/alerts/?token=${encodeURIComponent(token)}`;
+    let url = `${getWebSocketBaseUrl()}/ws/alerts/`;
+    try {
+      if (explicitToken !== undefined) {
+        url += `?token=${encodeURIComponent(token)}`;
+      } else {
+        const ticketRes = await authService.getWsTicket();
+        url += `?ticket=${encodeURIComponent(ticketRes.ticket)}`;
+      }
+    } catch {
+      // Fallback to token if ticket endpoint fails
+      url += `?token=${encodeURIComponent(token)}`;
+    }
+
     const socket = new WebSocket(url);
     socketRef.current = socket;
 

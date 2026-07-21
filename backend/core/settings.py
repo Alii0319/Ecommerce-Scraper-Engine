@@ -25,13 +25,23 @@ _patch_django_template_context_for_python314()
 load_dotenv(os.path.join(BASE_DIR, '.env'))
 
 # Core Security Settings decoupled via environment states
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 DEBUG = os.getenv('DJANGO_DEBUG', 'False') == 'True'
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-development-placeholder-key-for-local-testing')
+
 ALLOWED_HOSTS = [
     host.strip()
-    for host in os.getenv('ALLOWED_HOSTS', '*').split(',')
+    for host in os.getenv('ALLOWED_HOSTS', '*' if DEBUG else '').split(',')
     if host.strip()
 ]
+
+if not DEBUG:
+    from django.core.exceptions import ImproperlyConfigured
+
+    if not os.getenv('DJANGO_SECRET_KEY') or SECRET_KEY.startswith(('django-insecure', 'insecure', 'change-me')):
+        raise ImproperlyConfigured("DJANGO_SECRET_KEY must be configured with a secure key in production.")
+
+    if not ALLOWED_HOSTS or '*' in ALLOWED_HOSTS:
+        raise ImproperlyConfigured("ALLOWED_HOSTS must be explicitly defined without wildcards in production.")
 
 DEFAULT_FRONTEND_ORIGINS = [
     'http://localhost',
@@ -249,6 +259,10 @@ CELERY_BEAT_SCHEDULE = {
     'orchestrate-scraping-every-four-hours': {
         'task': 'trackers.tasks.orchestrate_scraping_pipeline',
         'schedule': 14400.0,
+    },
+    'recover-undelivered-alerts-every-two-minutes': {
+        'task': 'trackers.tasks.recover_undelivered_alerts',
+        'schedule': 120.0,
     },
 }
 

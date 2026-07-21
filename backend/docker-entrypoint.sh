@@ -39,10 +39,4 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "Applying database migrations..."
-python manage.py migrate --noinput
-
-echo "Collecting static files..."
-python manage.py collectstatic --noinput || true
-
 exec "$@"
