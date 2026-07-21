@@ -1,7 +1,10 @@
 from decimal import Decimal
-from rest_framework import serializers
 from urllib.parse import urlparse
-from .models import TrackedProduct, PriceHistory
+
+from drf_spectacular.utils import extend_schema_field
+from rest_framework import serializers
+
+from .models import PriceHistory, TrackedProduct
 
 class PriceHistorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -19,7 +22,8 @@ class TrackedProductSerializer(serializers.ModelSerializer):
         fields = ('id', 'product_name', 'target_url', 'notification_threshold', 'is_active', 'created_at', 'last_scraped_at', 'domain_name', 'price_histories')
         read_only_fields = ('id', 'created_at', 'last_scraped_at')
 
-    def get_domain_name(self, obj):
+    @extend_schema_field(serializers.CharField())
+    def get_domain_name(self, obj) -> str:
         # Extract clear human-readable domain text from pure raw target URLs
         try:
             return urlparse(obj.target_url).netloc.replace('www.', '')

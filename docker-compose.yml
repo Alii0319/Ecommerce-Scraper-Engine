@@ -1,83 +1,118 @@
 services:
-  web:
-    build: ./backend/
-    image: ecommerce-scraper-engine-backend:latest  
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env 
-    depends_on:
-      - db
-      - redis
-    networks:
-      - scraper-network
-    restart: always
-
-  frontend:
-    build: ./frontend/ 
-    image: ecommerce-scraper-engine-frontend:latest
-    ports:
-      - "80:80"
-    networks:
-      - scraper-network
-    depends_on:
-      - web
-    restart: always
-
   db:
-    image: postgres:13
+    image: postgres:13-alpine
+    restart: unless-stopped
     env_file:
-      - .env 
+      - .env
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_DB: ${DB_NAME:-scraper_db}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-12345678}
     volumes:
       - db-data:/var/lib/postgresql/data
     ports:
       - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-scraper_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     networks:
       - scraper-network
-    restart: always
 
   redis:
-    image: redis:6
-    networks:
-      - scraper-network
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
     ports:
       - "6379:6379"
-    restart: always
-  
-  celery:
-    build: ./backend/                 
-    image: ecommerce-scraper-engine-backend:latest  
-    command: celery -A core worker --loglevel=info
-    env_file:
-      - .env 
-    depends_on:
-      - db
-      - redis
-      - web
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - scraper-network
-    restart: always
 
-  celery-beat:
-    build: ./backend/                 
-    image: ecommerce-scraper-engine-backend:latest  
-    command: celery -A core beat --loglevel=info
+  web:
+    build: ./backend
+    image: ecommerce-scraper-engine-backend:latest
+    restart: unless-stopped
     env_file:
       - .env
+    command: ["daphne", "-b", "0.0.0.0", "-p", "8000", "core.asgi:application"]
+    ports:
+      - "8000:8000"
     depends_on:
-      - db
-      - redis
-      - celery
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/', timeout=3)\""
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     networks:
       - scraper-network
-    restart: always
+
+  celery:
+    build: ./backend
+    image: ecommerce-scraper-engine-backend:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: ["celery", "-A", "core", "worker", "--loglevel=INFO", "--concurrency=2"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scraper-network
+
+  celery-beat:
+    build: ./backend
+    image: ecommerce-scraper-engine-backend:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: ["celery", "-A", "core", "beat", "--loglevel=INFO", "--pidfile="]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - scraper-network
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/}
+        VITE_WS_BASE_URL: ${VITE_WS_BASE_URL:-ws://localhost:8000}
+    image: ecommerce-scraper-engine-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - scraper-network
 
 volumes:
   db-data:
+  redis-data:
 
 networks:
   scraper-network:

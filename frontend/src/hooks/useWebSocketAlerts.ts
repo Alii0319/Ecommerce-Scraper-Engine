@@ -1,131 +1,235 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from "react";
 
-export interface AlertItem {
-  id: string;
-  productName: string;
-  currentPrice: number;
+export interface AlertPayload {
+  product_id: number;
+  history_id: number;
+  product_name: string;
+  current_price: string;
+  threshold: string;
+  target_url: string;
   timestamp: string;
 }
 
-interface UseWebSocketAlertsResult {
-  notifications: AlertItem[];
-  connectionState: 'connecting' | 'connected' | 'error' | 'disconnected';
-  acknowledgeAlert: (id: string) => void;
-  setNotificationCallback: (callback: (alert: AlertItem) => void) => void;
-  triggerLocalAlert: (alert: Omit<AlertItem, 'id'>) => void;
+export interface AlertEvent {
+  type: "price_threshold_alert";
+  version: 1;
+  data: AlertPayload;
 }
 
-const getAccessToken = (): string | null => {
-  if (typeof window === 'undefined') {
-    return null;
-  }
+export interface AlertItem {
+  id: string;
+  productId?: number;
+  historyId?: number;
+  productName: string;
+  currentPrice: number;
+  threshold?: number;
+  targetUrl?: string;
+  timestamp: string;
+}
 
-  return window.localStorage.getItem('access_token');
-};
+export type ConnectionState =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "error";
 
-export const useWebSocketAlerts = (): UseWebSocketAlertsResult => {
+interface UseWebSocketAlertsResult {
+  notifications: AlertItem[];
+  connectionState: ConnectionState;
+  acknowledgeAlert: (id: string) => void;
+  setNotificationCallback: (callback: (alert: AlertItem) => void) => void;
+  triggerLocalAlert: (alert: Omit<AlertItem, "id">) => void;
+}
+
+const MAX_RECONNECT_DELAY_MS = 30_000;
+
+function getWebSocketBaseUrl(): string {
+  const configured = import.meta.env.VITE_WS_BASE_URL?.trim();
+  if (configured) return configured.replace(/\/+$/, "");
+
+  if (typeof window === "undefined") return "ws://localhost:8000";
+
+  const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${scheme}://${window.location.host}`;
+}
+
+function getStoredAccessToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem("access_token");
+}
+
+function isAlertEvent(value: unknown): value is AlertEvent {
+  if (!value || typeof value !== "object") return false;
+
+  const event = value as Partial<AlertEvent>;
+  const data = event.data as Partial<AlertPayload> | undefined;
+
+  return (
+    event.type === "price_threshold_alert" &&
+    event.version === 1 &&
+    !!data &&
+    typeof data.product_id === "number" &&
+    typeof data.history_id === "number" &&
+    typeof data.product_name === "string" &&
+    typeof data.current_price === "string" &&
+    typeof data.threshold === "string" &&
+    typeof data.target_url === "string" &&
+    typeof data.timestamp === "string"
+  );
+}
+
+export function useWebSocketAlerts(explicitToken?: string | null): UseWebSocketAlertsResult {
   const [notifications, setNotifications] = useState<AlertItem[]>([]);
-  const [connectionState, setConnectionState] = useState<'connecting' | 'connected' | 'error' | 'disconnected'>('disconnected');
+  const [connectionState, setConnectionState] = useState<ConnectionState>("idle");
+
   const socketRef = useRef<WebSocket | null>(null);
-  const reconnectAttemptsRef = useRef<number>(0);
   const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const shouldReconnectRef = useRef(false);
   const callbackRef = useRef<((alert: AlertItem) => void) | null>(null);
 
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }, []);
+
   const acknowledgeAlert = useCallback((id: string) => {
-    setNotifications((current) => current.filter((alert) => alert.id !== id));
+    setNotifications((current) => current.filter((item) => item.id !== id));
   }, []);
 
   const notifyBrowser = useCallback((alert: AlertItem) => {
-    if (typeof window === 'undefined' || typeof Notification === 'undefined') {
-      return;
-    }
+    if (typeof window === "undefined" || typeof Notification === "undefined") return;
 
-    if (Notification.permission === 'default') {
-      void Notification.requestPermission();
-    }
-
-    if (Notification.permission === 'granted') {
-      new Notification('Price threshold alert', {
-        body: `${alert.productName} now at Rs. ${alert.currentPrice} (${alert.timestamp})`,
+    if (Notification.permission === "granted") {
+      new Notification("Price threshold reached", {
+        body: `${alert.productName}: Rs. ${alert.currentPrice}`,
       });
     }
   }, []);
 
-  const triggerLocalAlert = useCallback((alert: Omit<AlertItem, 'id'>) => {
-    const newAlert: AlertItem = {
-      ...alert,
-      id: `${alert.productName}-${alert.timestamp}-${Date.now()}-${Math.random()}`,
-    };
-    setNotifications((current) => [newAlert, ...current].slice(0, 5));
-    notifyBrowser(newAlert);
-  }, [notifyBrowser]);
+  const addAlertFromEvent = useCallback(
+    (event: AlertEvent) => {
+      const payload = event.data;
+      const alert: AlertItem = {
+        id: String(payload.history_id),
+        productId: payload.product_id,
+        historyId: payload.history_id,
+        productName: payload.product_name,
+        currentPrice: Number(payload.current_price) || 0,
+        threshold: Number(payload.threshold) || 0,
+        targetUrl: payload.target_url,
+        timestamp: payload.timestamp,
+      };
+
+      setNotifications((current) => {
+        if (current.some((item) => item.id === alert.id)) return current;
+        return [alert, ...current].slice(0, 50);
+      });
+
+      callbackRef.current?.(alert);
+      notifyBrowser(alert);
+    },
+    [notifyBrowser]
+  );
+
+  const triggerLocalAlert = useCallback(
+    (alert: Omit<AlertItem, "id">) => {
+      const newAlert: AlertItem = {
+        ...alert,
+        id: `${alert.productName}-${alert.timestamp}-${Date.now()}-${Math.random()}`,
+      };
+      setNotifications((current) => [newAlert, ...current].slice(0, 50));
+      notifyBrowser(newAlert);
+    },
+    [notifyBrowser]
+  );
 
   const connect = useCallback(() => {
-    const token = getAccessToken();
-    if (!token) {
-      setConnectionState('error');
+    const token = explicitToken !== undefined ? explicitToken : getStoredAccessToken();
+
+    if (!token || !shouldReconnectRef.current) {
+      setConnectionState("idle");
       return;
     }
 
-    const ws = new WebSocket(`ws://localhost:8000/ws/alerts/?token=${encodeURIComponent(token)}`);
-    socketRef.current = ws;
-    setConnectionState('connecting');
+    if (
+      socketRef.current?.readyState === WebSocket.OPEN ||
+      socketRef.current?.readyState === WebSocket.CONNECTING
+    ) {
+      return;
+    }
 
-    ws.onopen = () => {
-      reconnectAttemptsRef.current = 0;
-      setConnectionState('connected');
+    setConnectionState("connecting");
+
+    const url = `${getWebSocketBaseUrl()}/ws/alerts/?token=${encodeURIComponent(token)}`;
+    const socket = new WebSocket(url);
+    socketRef.current = socket;
+
+    socket.onopen = () => {
+      reconnectAttemptRef.current = 0;
+      setConnectionState("connected");
     };
 
-    ws.onmessage = (event) => {
+    socket.onmessage = (message) => {
       try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'price_threshold_alert') {
-          const alert: AlertItem = {
-            id: data.id || `${data.product_name || 'product'}-${data.timestamp || Date.now()}-${Math.random()}`,
-            productName: data.product_name || 'Product',
-            currentPrice: parseFloat(String(data.current_price)) || 0,
-            timestamp: data.timestamp || new Date().toLocaleTimeString(),
-          };
-          setNotifications((current) => [alert, ...current].slice(0, 5));
-          callbackRef.current?.(alert);
-          notifyBrowser(alert);
+        const parsed: unknown = JSON.parse(message.data);
+        if (isAlertEvent(parsed)) {
+          addAlertFromEvent(parsed);
         }
-      } catch (err) {
-        // Safe catch
+      } catch {
+        // Ignore malformed external frames.
       }
     };
 
-    ws.onerror = () => {
-      setConnectionState('error');
-    };
+    socket.onerror = () => setConnectionState("error");
 
-    ws.onclose = () => {
-      setConnectionState('disconnected');
-      const attempts = reconnectAttemptsRef.current + 1;
-      reconnectAttemptsRef.current = attempts;
-      const delay = Math.min(5000 * attempts, 30000);
+    socket.onclose = (event) => {
+      socketRef.current = null;
+      setConnectionState("disconnected");
 
-      if (reconnectTimerRef.current !== null) {
-        window.clearTimeout(reconnectTimerRef.current);
+      if (!shouldReconnectRef.current) return;
+      if (event.code === 4401 || event.code === 4403) {
+        shouldReconnectRef.current = false;
+        return;
       }
 
-      reconnectTimerRef.current = window.setTimeout(() => {
-        connect();
-      }, delay);
+      reconnectAttemptRef.current += 1;
+      const delay = Math.min(
+        1_000 * 2 ** (reconnectAttemptRef.current - 1),
+        MAX_RECONNECT_DELAY_MS
+      );
+
+      clearReconnectTimer();
+      reconnectTimerRef.current = window.setTimeout(connect, delay);
     };
-  }, [notifyBrowser]);
+  }, [addAlertFromEvent, clearReconnectTimer, explicitToken]);
 
   useEffect(() => {
+    clearReconnectTimer();
+    socketRef.current?.close();
+    socketRef.current = null;
+
+    const token = explicitToken !== undefined ? explicitToken : getStoredAccessToken();
+
+    if (!token) {
+      shouldReconnectRef.current = false;
+      setConnectionState("idle");
+      return;
+    }
+
+    shouldReconnectRef.current = true;
     connect();
 
     return () => {
-      if (reconnectTimerRef.current !== null) {
-        window.clearTimeout(reconnectTimerRef.current);
-      }
-
+      shouldReconnectRef.current = false;
+      clearReconnectTimer();
       socketRef.current?.close();
+      socketRef.current = null;
     };
-  }, [connect]);
+  }, [connect, clearReconnectTimer, explicitToken]);
 
   const setNotificationCallback = useCallback((callback: (alert: AlertItem) => void) => {
     callbackRef.current = callback;
@@ -138,4 +242,4 @@ export const useWebSocketAlerts = (): UseWebSocketAlertsResult => {
     setNotificationCallback,
     triggerLocalAlert,
   };
-};
+}

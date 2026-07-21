@@ -43,10 +43,8 @@ RUN mkdir -p /app/staticfiles
 
 # Copy project files
 COPY . .
-
-# Collect static assets
-RUN python manage.py collectstatic --noinput --clear || true
+RUN chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 8000
-
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "core.wsgi:application"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "core.asgi:application"]

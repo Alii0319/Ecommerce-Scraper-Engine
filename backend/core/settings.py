@@ -140,29 +140,52 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
+    'DEFAULT_THROTTLING_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/day',
+        'user': '1000/day',
+    },
 }
 
-# Real-Time WebSocket Channel Layer (Using decoupled Redis topology with InMemory fallback for local dev)
-import redis
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = 'DENY'
+    # Nginx handles TLS termination; enable HSTS for browsers only
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    # SSL redirect disabled here — Nginx enforces HTTPS upstream
+    SECURE_SSL_REDIRECT = False
 
-REDIS_URL = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/1')
+# Real-Time WebSocket Channel Layer (Using Redis topology with opt-in InMemory for local testing)
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/1')
+USE_IN_MEMORY_CHANNEL_LAYER = (
+    os.getenv('USE_IN_MEMORY_CHANNEL_LAYER', 'False').lower() == 'true'
+)
 
-try:
-    _r = redis.Redis.from_url(REDIS_URL, socket_timeout=1)
-    _r.ping()
+if DEBUG and USE_IN_MEMORY_CHANNEL_LAYER:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        }
+    }
+else:
     CHANNEL_LAYERS = {
         'default': {
             'BACKEND': 'channels_redis.core.RedisChannelLayer',
             'CONFIG': {
                 'hosts': [REDIS_URL],
+                'capacity': 1500,
+                'expiry': 60,
             },
-        },
-    }
-except Exception:
-    CHANNEL_LAYERS = {
-        'default': {
-            'BACKEND': 'channels.layers.InMemoryChannelLayer',
-        },
+        }
     }
 
 # Swagger UI Documentation Meta Configurations
@@ -196,17 +219,62 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 # Celery Asynchronous Engine Cluster Operations Definitions
-CELERY_BROKER_URL = REDIS_URL
-CELERY_RESULT_BACKEND = REDIS_URL
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', REDIS_URL)
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', REDIS_URL)
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = os.getenv('TIME_ZONE', 'UTC')
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 120
+CELERY_TASK_SOFT_TIME_LIMIT = 90
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 # Configure Periodic Tasks Schedules mapping matrices
 CELERY_BEAT_SCHEDULE = {
-    'dispatch-scraping-orchestration-every-4-hours': {
+    'orchestrate-scraping-every-four-hours': {
         'task': 'trackers.tasks.orchestrate_scraping_pipeline',
-        'schedule': 14400.0,  # Corresponds exactly to 4 Hours standard interval sequence execution
+        'schedule': 14400.0,
+    },
+}
+
+# Structured Console Logging Configuration
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': os.getenv('DJANGO_LOG_LEVEL', 'INFO'),
+            'propagate': False,
+        },
+        'celery': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'trackers': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
     },
 }

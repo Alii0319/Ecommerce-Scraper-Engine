@@ -1,46 +1,70 @@
-name: Ecommerce Scraper Engine CI
+name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
 
 jobs:
-  production-grade-ci:
+  test:
     runs-on: ubuntu-latest
+
+    env:
+      DJANGO_SECRET_KEY: ci-only-secret-key
+      DJANGO_DEBUG: "False"
+      DB_NAME: scraper_test
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/1
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      ALLOWED_HOSTS: localhost,127.0.0.1,web
+      CORS_ALLOWED_ORIGINS: http://localhost
+      CSRF_TRUSTED_ORIGINS: http://localhost
+      VITE_API_BASE_URL: http://localhost:8000/api/
+      VITE_WS_BASE_URL: ws://localhost:8000
+
     steps:
-      # v4 se v5 par upgrade kiya taake Node.js 24 deprecation warning khatam ho sake
-      - name: Checkout Code
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
-      # GitHub Secret se secure password utha kar temporary .env file banana
-      - name: Inject Production Secrets into Env File
-        run: |
-          echo "DB_USER=postgres" >> .env
-          echo "DB_NAME=scraper_db" >> .env
-          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
-          cp .env backend/.env # Django backend workspace ke liye copy[cite: 2]
+      - name: Build services
+        run: docker compose build
 
-      # Pure stack (Postgres, Redis, Django, Celery, Celery Beat, React) ko build aur run karna[cite: 2]
-      - name: Spin up Full Production Stack with Docker Compose
-        run: |
-          docker compose up -d --build
+      - name: Start dependencies and backend
+        run: docker compose up -d db redis web
 
-      # 30 seconds wait karna takay healthchecks pass ho sakein[cite: 2]
-      - name: Verify Multi-Container Architecture Health Status
-        run: |
-          echo "Waiting for all microservices to pass health checks..."
-          sleep 30
-          docker compose ps
-          
-      # Failure ki surat mein logs show karna[cite: 2]
-      - name: Print Microservices Logs on Failure
-        if: failure()
-        run: |
-          docker compose logs
+      - name: Django checks
+        run: docker compose exec -T web python manage.py check
 
-      # Test complete hone par stack down karna[cite: 2]
-      - name: Tear Down Production Stack
+      - name: Check migrations
+        run: docker compose exec -T web python manage.py makemigrations --check --dry-run
+
+      - name: Backend tests
+        run: docker compose exec -T web python manage.py test
+
+      - name: Deployment checks
+        run: docker compose exec -T web python manage.py check --deploy
+
+      - name: Frontend install, lint, typecheck, and build
         run: |
-          docker compose down -v
+          docker run --rm \
+            -v "$PWD/frontend:/app" \
+            -w /app \
+            node:20-alpine \
+            sh -c "npm ci && npm run lint && npm run typecheck && npm run build"
+
+      - name: Full Compose startup
+        run: docker compose up -d
+
+      - name: Verify services
+        run: docker compose ps
+
+      - name: Logs
+        if: always()
+        run: docker compose logs --no-color
+
+      - name: Shutdown
+        if: always()
+        run: docker compose down -v
