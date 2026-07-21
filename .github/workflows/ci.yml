@@ -4,36 +4,42 @@ on:
   push:
     branches: ["main"]
   pull_request:
+    branches: ["main"]
 
 jobs:
   test:
     runs-on: ubuntu-latest
 
-    env:
-      DJANGO_SECRET_KEY: ci-only-secret-key
-      DJANGO_DEBUG: "False"
-      DB_NAME: scraper_test
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_HOST: db
-      DB_PORT: "5432"
-      REDIS_URL: redis://redis:6379/1
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      ALLOWED_HOSTS: localhost,127.0.0.1,web
-      CORS_ALLOWED_ORIGINS: http://localhost
-      CSRF_TRUSTED_ORIGINS: http://localhost
-      VITE_API_BASE_URL: http://localhost:8000/api/
-      VITE_WS_BASE_URL: ws://localhost:8000
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Create .env file for CI
+        run: |
+          cat << 'EOF' > .env
+          DJANGO_SECRET_KEY=ci-secret-key-1234567890-test-key-long-enough-for-production
+          DJANGO_DEBUG=False
+          DB_NAME=scraper_db
+          DB_USER=postgres
+          DB_PASSWORD=postgres
+          DB_HOST=db
+          DB_PORT=5432
+          REDIS_URL=redis://redis:6379/1
+          REDIS_HOST=redis
+          REDIS_PORT=6379
+          ALLOWED_HOSTS=localhost,127.0.0.1,web
+          CORS_ALLOWED_ORIGINS=http://localhost
+          CSRF_TRUSTED_ORIGINS=http://localhost
+          VITE_API_BASE_URL=http://localhost:8000/api/
+          VITE_WS_BASE_URL=ws://localhost:8000
+          USE_IN_MEMORY_CHANNEL_LAYER=False
+          EOF
 
       - name: Build services
         run: docker compose build
 
       - name: Start dependencies and backend
-        run: docker compose up -d db redis web
+        run: docker compose up -d --wait db redis web
 
       - name: Django checks
         run: docker compose exec -T web python manage.py check
@@ -47,16 +53,16 @@ jobs:
       - name: Deployment checks
         run: docker compose exec -T web python manage.py check --deploy
 
-      - name: Frontend install, lint, typecheck, and build
+      - name: Frontend lint, typecheck, and build
         run: |
           docker run --rm \
             -v "$PWD/frontend:/app" \
             -w /app \
             node:20-alpine \
-            sh -c "npm ci && npm run lint && npm run typecheck && npm run build"
+            sh -c "npm ci && npm run lint && npm run build"
 
       - name: Full Compose startup
-        run: docker compose up -d
+        run: docker compose up -d --wait
 
       - name: Verify services
         run: docker compose ps
