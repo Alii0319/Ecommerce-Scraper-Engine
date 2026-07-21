@@ -159,11 +159,18 @@ const refreshAccessToken = async (): Promise<void> => {
   }
 
   const response = await api.post<TokenResponseShape>('auth/refresh/', { refresh: refreshToken });
-  const tokens = normalizeTokenResponse(response.data);
-  if (!tokens.access || !tokens.refresh) {
-    throw new Error('Refresh response did not include valid tokens');
+  const data = response.data;
+
+  if (!data.access) {
+    throw new Error('Refresh response did not include a new access token');
   }
-  persistAuthTokens(tokens);
+
+  // If the backend rotates refresh tokens it returns a new one;
+  // otherwise keep the existing refresh token intact.
+  persistAuthTokens({
+    access: data.access,
+    refresh: data.refresh || refreshToken,
+  });
 };
 
 api.interceptors.response.use(
