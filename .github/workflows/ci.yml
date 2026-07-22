@@ -24,6 +24,7 @@ jobs:
           cat << 'EOF' > .env
           DJANGO_SECRET_KEY=ci-only-long-secret-key-for-django-checks
           DJANGO_DEBUG=False
+          SECURE_SSL_REDIRECT=False
           DB_NAME=scraper_db
           DB_USER=postgres
           DB_PASSWORD=replace-with-a-strong-password

@@ -1,6 +1,7 @@
 x-backend-environment: &backend-environment
   DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY is required}
   DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
+  SECURE_SSL_REDIRECT: ${SECURE_SSL_REDIRECT:-False}
   ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,web}
   DB_NAME: ${DB_NAME:?DB_NAME is required}
   DB_USER: ${DB_USER:?DB_USER is required}

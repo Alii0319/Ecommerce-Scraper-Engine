@@ -190,7 +190,7 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 31536000  # 1 year
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
-    SECURE_SSL_REDIRECT = _get_env_bool('SECURE_SSL_REDIRECT', True)
+    SECURE_SSL_REDIRECT = _get_env_bool('SECURE_SSL_REDIRECT', False)
 
 # Real-Time WebSocket Channel Layer (Using Redis topology with opt-in InMemory for local testing)
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/1')
