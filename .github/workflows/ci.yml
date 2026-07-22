@@ -12,7 +12,7 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -52,10 +52,10 @@ jobs:
         run: docker compose up -d --wait web celery celery-beat
 
       - name: Install security audit tool
-        run: docker compose exec -T web pip install pip-audit coverage
+        run: docker compose exec -T web python -m pip install --user pip-audit coverage
 
       - name: Backend Security Audit
-        run: docker compose exec -T web pip-audit
+        run: docker compose exec -T web python -m pip_audit --progress-spinner off --timeout 10
 
       - name: Django system checks
         run: docker compose exec -T web python manage.py check
@@ -65,8 +65,8 @@ jobs:
 
       - name: Backend tests with coverage
         run: |
-          docker compose exec -T web coverage run manage.py test
-          docker compose exec -T web coverage report --fail-under=85
+          docker compose exec -T web python -m coverage run manage.py test
+          docker compose exec -T web python -m coverage report --fail-under=85
 
       - name: Django deployment checks
         run: docker compose exec -T web python manage.py check --deploy

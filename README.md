@@ -6,7 +6,7 @@ A production-oriented multi-user e-commerce price-monitoring platform built with
 
 | Component | Technology | Version / Specification |
 | :--- | :--- | :--- |
-| **Backend Framework** | Django | v5.0.14 |
+| **Backend Framework** | Django | v4.2.26 LTS |
 | **API Architecture** | Django REST Framework | v3.17.1 |
 | **Real-time Server** | Django Channels + Daphne | Channels v4.3.2 / Daphne v4.2.2 |
 | **Task Queue** | Celery | v5.6.3 |

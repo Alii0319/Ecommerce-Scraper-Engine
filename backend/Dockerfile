@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
+RUN pip install --no-cache-dir --upgrade pip==26.1.2 setuptools==83.0.0 && \
     pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels -r requirements.txt
 
 
@@ -34,7 +34,8 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
 # Install wheels from builder stage
 COPY --from=builder /app/wheels /wheels
 COPY --from=builder /app/requirements.txt .
-RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt && \
+RUN pip install --no-cache-dir --upgrade pip==26.1.2 setuptools==83.0.0 && \
+    pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt && \
     rm -rf /wheels
 
 # Create directory for static files
