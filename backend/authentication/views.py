@@ -10,7 +10,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .serializers import CustomTokenObtainPairSerializer, RegisterSerializer
+from .serializers import (
+    CustomTokenObtainPairSerializer,
+    RegisterSerializer,
+    WebSocketTicketSerializer,
+)
 
 User = get_user_model()
 
@@ -50,14 +54,19 @@ class WebSocketTicketView(APIView):
     """Generates short-lived (30s) single-use ticket for WebSocket authentication."""
 
     permission_classes = (IsAuthenticated,)
+    serializer_class = WebSocketTicketSerializer
 
     def post(self, request, *args, **kwargs):
         ticket = secrets.token_hex(32)
         expires_at = timezone.now() + timedelta(seconds=30)
         cache_key = f"ws-ticket:{ticket}"
 
-        # Save to cache with 30s expiration
-        cache.set(cache_key, {"user_id": request.user.id}, timeout=30)
+        import json
+        from django_redis import get_redis_connection
+        redis_conn = get_redis_connection("default")
+
+        # Save to cache with 30s expiration using raw json string
+        redis_conn.setex(cache_key, 30, json.dumps({"user_id": request.user.id}))
 
         return Response(
             {

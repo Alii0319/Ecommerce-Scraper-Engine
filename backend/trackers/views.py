@@ -1,9 +1,10 @@
 from django.conf import settings
+from django.db import DatabaseError, OperationalError
 from django.db import connection, transaction
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
-from redis import Redis
+from redis import Redis, RedisError
 from rest_framework import permissions, viewsets
 
 from .models import TrackedProduct
@@ -61,12 +62,16 @@ def readiness_check(request):
             cursor.execute("SELECT 1")
             cursor.fetchone()
 
+        redis_status = "skipped"
         if not getattr(settings, "USE_IN_MEMORY_CHANNEL_LAYER", False):
             redis_client = Redis.from_url(settings.REDIS_URL, socket_timeout=2)
             redis_client.ping()
+            redis_status = "ok"
 
-        return JsonResponse({"status": "ready"})
-    except Exception:
+        return JsonResponse({"status": "ready", "db": "ok", "redis": redis_status})
+    except (DatabaseError, OperationalError, RedisError):
+        import logging
+        logging.getLogger(__name__).exception("Health check failed")
         return JsonResponse({"status": "degraded"}, status=503)
 
 

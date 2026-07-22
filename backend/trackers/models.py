@@ -86,7 +86,8 @@ class PriceAlert(models.Model):
     class DeliveryStatus(models.TextChoices):
         PENDING = "pending", "Pending"
         PROCESSING = "processing", "Processing"
-        DELIVERED = "delivered", "Delivered"
+        PUBLISHED = "published", "Published to Channels"
+        ACKNOWLEDGED = "acknowledged", "Acknowledged by browser"
         FAILED = "failed", "Failed"
 
     event_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
@@ -116,7 +117,8 @@ class PriceAlert(models.Model):
     )
     attempts = models.PositiveIntegerField(default=0)
     available_at = models.DateTimeField(auto_now_add=True)
-    delivered_at = models.DateTimeField(null=True, blank=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
     last_error = models.CharField(max_length=500, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

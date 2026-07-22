@@ -13,15 +13,22 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create .env file for CI
         run: |
           cat << 'EOF' > .env
-          DJANGO_SECRET_KEY=ci-secret-key-1234567890-test-key-long-enough-for-production
+          DJANGO_SECRET_KEY=ci-only-long-secret-key-for-django-checks
           DJANGO_DEBUG=False
           DB_NAME=scraper_db
           DB_USER=postgres
-          DB_PASSWORD=postgres
+          DB_PASSWORD=replace-with-a-strong-password
           DB_HOST=db
           DB_PORT=5432
           REDIS_URL=redis://redis:6379/1
@@ -44,14 +51,22 @@ jobs:
       - name: Start backend service
         run: docker compose up -d --wait web celery celery-beat
 
+      - name: Install security audit tool
+        run: docker compose exec -T web pip install pip-audit coverage
+
+      - name: Backend Security Audit
+        run: docker compose exec -T web pip-audit
+
       - name: Django system checks
         run: docker compose exec -T web python manage.py check
 
       - name: Check no pending migrations
         run: docker compose exec -T web python manage.py makemigrations --check --dry-run
 
-      - name: Backend tests
-        run: docker compose exec -T web python manage.py test
+      - name: Backend tests with coverage
+        run: |
+          docker compose exec -T web coverage run manage.py test
+          docker compose exec -T web coverage report --fail-under=85
 
       - name: Django deployment checks
         run: docker compose exec -T web python manage.py check --deploy
@@ -60,11 +75,11 @@ jobs:
         run: |
           echo "=== migrate service logs ==="
           docker compose logs migrate --no-color
-          echo "=== web service logs (should have NO migrate lines) ==="
-          WEB_LOGS=$(docker compose logs web --no-color)
-          echo "$WEB_LOGS"
-          if echo "$WEB_LOGS" | grep -q "Applying.*migrations"; then
-            echo "FAILURE: web service ran migrations — only migrate service should do this!" >&2
+          echo "=== app services logs (should have NO migrate lines) ==="
+          APP_LOGS=$(docker compose logs web celery celery-beat --no-color)
+          echo "$APP_LOGS"
+          if echo "$APP_LOGS" | grep -qE "Applying .* migration|Running migrations"; then
+            echo "FAILURE: Application service attempted migrations — only migrate service should do this!" >&2
             exit 1
           fi
 
@@ -79,13 +94,13 @@ jobs:
           print('Health checks passed')
           "
 
-      - name: Frontend lint and typecheck
+      - name: Frontend lint, typecheck, tests, and security audit
         run: |
           docker run --rm \
             -v "$PWD/frontend:/app" \
             -w /app \
             node:20-alpine \
-            sh -c "npm ci && npm run lint && npx tsc --noEmit"
+            sh -c "npm ci && npm run lint && npx tsc --noEmit && npm run test -- --run && npm audit --audit-level=high"
 
       - name: Frontend build
         run: |
@@ -100,6 +115,11 @@ jobs:
 
       - name: Verify all services are healthy
         run: docker compose ps
+
+      - name: Run E2E Tests
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build
+          docker run --rm --network host -v "$PWD/e2e:/e2e" -w /e2e mcr.microsoft.com/playwright:v1.44.0-jammy sh -c "npm ci && npx playwright test"
 
       - name: Logs
         if: always()

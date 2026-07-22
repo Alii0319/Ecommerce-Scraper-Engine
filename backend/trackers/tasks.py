@@ -31,13 +31,28 @@ def evaluate_alert_type(
     last_alerted_price: Decimal | None,
 ) -> str | None:
     """Evaluates precise alert semantics: threshold_reached vs new_lower_price vs price_drop."""
-    if current_price <= threshold:
-        if previous_price is None or previous_price > threshold:
-            return PriceAlert.AlertType.THRESHOLD_REACHED
-        if last_alerted_price is not None and current_price < last_alerted_price:
-            return PriceAlert.AlertType.NEW_LOWER_PRICE
-        if previous_price is not None and current_price < previous_price:
-            return PriceAlert.AlertType.PRICE_DROP
+    if (
+        previous_price is not None
+        and previous_price > threshold
+        and current_price <= threshold
+    ):
+        return PriceAlert.AlertType.THRESHOLD_REACHED
+
+    if (
+        current_price <= threshold
+        and last_alerted_price is not None
+        and current_price < last_alerted_price
+    ):
+        return PriceAlert.AlertType.NEW_LOWER_PRICE
+
+    if (
+        previous_price is not None
+        and current_price < previous_price
+    ):
+        return PriceAlert.AlertType.PRICE_DROP
+
+    if previous_price is None and current_price <= threshold:
+        return PriceAlert.AlertType.THRESHOLD_REACHED
 
     return None
 
@@ -220,7 +235,7 @@ def deliver_price_alert(self, alert_id: int) -> dict:
         except PriceAlert.DoesNotExist:
             return {"status": "skipped_not_found", "alert_id": alert_id}
 
-        if alert.status == PriceAlert.DeliveryStatus.DELIVERED:
+        if alert.status in [PriceAlert.DeliveryStatus.PUBLISHED, PriceAlert.DeliveryStatus.ACKNOWLEDGED]:
             return {"status": "already_delivered", "alert_id": alert_id}
 
         alert.status = PriceAlert.DeliveryStatus.PROCESSING
@@ -238,8 +253,8 @@ def deliver_price_alert(self, alert_id: int) -> dict:
         raise
 
     PriceAlert.objects.filter(id=alert_id).update(
-        status=PriceAlert.DeliveryStatus.DELIVERED,
-        delivered_at=timezone.now(),
+        status=PriceAlert.DeliveryStatus.PUBLISHED,
+        published_at=timezone.now(),
         last_error="",
     )
 
@@ -276,18 +291,44 @@ def dispatch_websocket_alert(*, alert: PriceAlert) -> None:
 
 @shared_task(name="trackers.tasks.recover_undelivered_alerts")
 def recover_undelivered_alerts() -> dict:
-    cutoff = timezone.now() - timezone.timedelta(minutes=2)
-    stuck_alerts = PriceAlert.objects.filter(
-        status__in=[PriceAlert.DeliveryStatus.PENDING, PriceAlert.DeliveryStatus.FAILED],
-        available_at__lte=timezone.now(),
-    ).values_list("id", flat=True)[:100]
+    now = timezone.now()
+    stale_cutoff = now - timezone.timedelta(minutes=5)
+
+    from django.db.models import Q
+    alerts = (
+        PriceAlert.objects
+        .filter(
+            Q(
+                status__in=[
+                    PriceAlert.DeliveryStatus.PENDING,
+                    PriceAlert.DeliveryStatus.FAILED,
+                ],
+                available_at__lte=now,
+            )
+            | Q(
+                status=PriceAlert.DeliveryStatus.PROCESSING,
+                updated_at__lt=stale_cutoff,
+            )
+        )
+        .values_list("id", flat=True)
+    )
 
     requeued = 0
-    for aid in stuck_alerts:
-        deliver_price_alert.delay(aid)
+    for alert_id in alerts.iterator(chunk_size=500):
+        PriceAlert.objects.filter(
+            id=alert_id,
+            status=PriceAlert.DeliveryStatus.PROCESSING,
+            updated_at__lt=stale_cutoff,
+        ).update(
+            status=PriceAlert.DeliveryStatus.PENDING,
+            available_at=now,
+            last_error="Recovered stale processing alert.",
+        )
+
+        deliver_price_alert.delay(alert_id)
         requeued += 1
 
-    return {"status": "success", "requeued_count": requeued}
+    return {"status": "success", "queued": requeued}
 
 
 @shared_task(name="trackers.tasks.orchestrate_scraping_pipeline")

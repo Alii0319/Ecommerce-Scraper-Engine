@@ -1,4 +1,5 @@
 import logging
+import os
 from playwright.sync_api import (
     Browser,
     Page,
@@ -38,8 +39,10 @@ def fetch_rendered_html(url: str) -> str:
     validate_public_url(url)
 
     with sync_playwright() as playwright:
+        executable_path = os.getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH") or None
         browser: Browser = playwright.chromium.launch(
             headless=True,
+            executable_path=executable_path,
             args=["--disable-dev-shm-usage", "--no-sandbox"],
         )
         context = browser.new_context(

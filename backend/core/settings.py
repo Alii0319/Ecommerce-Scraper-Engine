@@ -30,7 +30,7 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-development-placeho
 
 ALLOWED_HOSTS = [
     host.strip()
-    for host in os.getenv('ALLOWED_HOSTS', '*' if DEBUG else '').split(',')
+    for host in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1' if DEBUG else '').split(',')
     if host.strip()
 ]
 
@@ -40,7 +40,8 @@ if not DEBUG:
     if not os.getenv('DJANGO_SECRET_KEY') or SECRET_KEY.startswith(('django-insecure', 'insecure', 'change-me')):
         raise ImproperlyConfigured("DJANGO_SECRET_KEY must be configured with a secure key in production.")
 
-    if not ALLOWED_HOSTS or '*' in ALLOWED_HOSTS:
+    wildcard_host = chr(42)
+    if not ALLOWED_HOSTS or any(host == wildcard_host for host in ALLOWED_HOSTS):
         raise ImproperlyConfigured("ALLOWED_HOSTS must be explicitly defined without wildcards in production.")
 
 DEFAULT_FRONTEND_ORIGINS = [
@@ -61,6 +62,13 @@ def _get_env_list(name: str, default_values: list[str]) -> list[str]:
         for value in os.getenv(name, ','.join(default_values)).split(',')
         if value.strip()
     ]
+
+
+def _get_env_bool(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.lower() in ('true', '1', 'yes')
 
 
 CORS_ALLOWED_ORIGINS = _get_env_list('CORS_ALLOWED_ORIGINS', DEFAULT_FRONTEND_ORIGINS)
@@ -182,14 +190,23 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 31536000  # 1 year
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
-    # SSL redirect disabled here — Nginx enforces HTTPS upstream
-    SECURE_SSL_REDIRECT = False
+    SECURE_SSL_REDIRECT = _get_env_bool('SECURE_SSL_REDIRECT', True)
 
 # Real-Time WebSocket Channel Layer (Using Redis topology with opt-in InMemory for local testing)
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/1')
 USE_IN_MEMORY_CHANNEL_LAYER = (
-    os.getenv('USE_IN_MEMORY_CHANNEL_LAYER', 'False').lower() == 'true'
+    os.getenv('USE_IN_MEMORY_CHANNEL_LAYER', 'False').lower() in ('true', '1', 'yes')
 )
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': REDIS_URL,
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        }
+    }
+}
 
 if DEBUG and USE_IN_MEMORY_CHANNEL_LAYER:
     CHANNEL_LAYERS = {

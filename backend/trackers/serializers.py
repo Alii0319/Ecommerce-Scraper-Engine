@@ -27,7 +27,7 @@ class TrackedProductSerializer(serializers.ModelSerializer):
         # Extract clear human-readable domain text from pure raw target URLs
         try:
             return urlparse(obj.target_url).netloc.replace('www.', '')
-        except Exception:
+        except (AttributeError, ValueError):
             return 'unknown'
 
     def validate_target_url(self, value):

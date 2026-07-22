@@ -1,0 +1,7 @@
+services:
+  # Using host networking for Playwright container in CI directly instead of a separate service
+  # This file can be used to add specific test databases or mock services if needed
+  # For now, it overrides nothing but is required by the CI command.
+  frontend:
+    ports:
+      - "80:80"

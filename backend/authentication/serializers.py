@@ -48,3 +48,10 @@ class RegisterSerializer(serializers.ModelSerializer):
             last_name=validated_data.get('last_name', '')
         )
         return user
+
+
+class WebSocketTicketSerializer(serializers.Serializer):
+    """Response schema for short-lived WebSocket authentication tickets."""
+
+    ticket = serializers.CharField(read_only=True)
+    expires_at = serializers.DateTimeField(read_only=True)

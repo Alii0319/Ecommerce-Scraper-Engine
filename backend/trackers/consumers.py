@@ -4,24 +4,20 @@ from urllib.parse import parse_qs
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.contrib.auth import get_user_model
-from django.core.cache import cache
-from rest_framework_simplejwt.exceptions import TokenError
-from rest_framework_simplejwt.tokens import AccessToken
+from django_redis import get_redis_connection
 
 User = get_user_model()
 
 
 class AlertNotificationConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        ticket, token = self._extract_credentials()
+        ticket = self._extract_ticket()
 
-        self.user = None
+        if not ticket:
+            await self.close(code=4401)
+            return
 
-        if ticket:
-            self.user = await self._authenticate_ticket(ticket)
-        elif token:
-            self.user = await self._authenticate_token(token)
-
+        self.user = await self._authenticate_ticket(ticket)
         if self.user is None:
             await self.close(code=4403)
             return
@@ -38,39 +34,67 @@ class AlertNotificationConsumer(AsyncWebsocketConsumer):
                 self.channel_name,
             )
 
-    def _extract_credentials(self) -> tuple[str | None, str | None]:
+    def _extract_ticket(self) -> str | None:
         query_string = self.scope.get("query_string", b"").decode()
         params = parse_qs(query_string)
-        ticket = params.get("ticket", [None])[0]
-        token = params.get("token", [None])[0]
-        return ticket, token
+        return params.get("ticket", [None])[0]
 
     @database_sync_to_async
     def _authenticate_ticket(self, ticket: str):
+        redis_conn = get_redis_connection("default")
         cache_key = f"ws-ticket:{ticket}"
-        # Atomically retrieve and delete ticket to prevent reuse
-        ticket_data = cache.get(cache_key)
-        if not ticket_data:
-            return None
-        cache.delete(cache_key)
 
-        user_id = ticket_data.get("user_id")
-        if not user_id:
+        # Atomically retrieve and delete ticket to prevent reuse
+        ticket_data_bytes = redis_conn.getdel(cache_key)
+        if not ticket_data_bytes:
             return None
 
         try:
+            ticket_data = json.loads(ticket_data_bytes)
+            user_id = ticket_data.get("user_id")
+            if not user_id:
+                return None
             return User.objects.get(id=user_id, is_active=True)
-        except User.DoesNotExist:
+        except (json.JSONDecodeError, User.DoesNotExist):
             return None
+
+    async def receive(self, text_data=None, bytes_data=None):
+        if not text_data:
+            return
+
+        try:
+            message = json.loads(text_data)
+        except json.JSONDecodeError:
+            return
+
+        if (
+            message.get("type") == "alert_ack"
+            and message.get("version") == 1
+        ):
+            await self._acknowledge_alert(
+                event_id=message.get("event_id"),
+                user_id=self.user.id,
+            )
 
     @database_sync_to_async
-    def _authenticate_token(self, token_str: str):
-        try:
-            access_token = AccessToken(token_str)
-            user_id = access_token.get("user_id")
-            return User.objects.get(id=user_id, is_active=True)
-        except (TokenError, User.DoesNotExist, KeyError, TypeError):
-            return None
+    def _acknowledge_alert(self, event_id: str, user_id: int):
+        from django.utils import timezone
+        from trackers.models import PriceAlert
+
+        if not event_id:
+            return
+
+        PriceAlert.objects.filter(
+            event_id=event_id,
+            user_id=user_id,
+            status__in=[
+                PriceAlert.DeliveryStatus.PUBLISHED,
+                PriceAlert.DeliveryStatus.ACKNOWLEDGED,
+            ]
+        ).update(
+            status=PriceAlert.DeliveryStatus.ACKNOWLEDGED,
+            acknowledged_at=timezone.now()
+        )
 
     async def broadcast_alert(self, event):
         await self.send(text_data=json.dumps(event["event"]))

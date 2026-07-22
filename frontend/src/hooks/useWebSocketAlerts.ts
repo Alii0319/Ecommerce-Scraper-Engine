@@ -82,7 +82,7 @@ function isAlertEvent(value: unknown): value is AlertEvent {
   );
 }
 
-export function useWebSocketAlerts(explicitToken?: string | null): UseWebSocketAlertsResult {
+export function useWebSocketAlerts(): UseWebSocketAlertsResult {
   const [notifications, setNotifications] = useState<AlertItem[]>([]);
   const [connectionState, setConnectionState] = useState<ConnectionState>("idle");
 
@@ -133,6 +133,17 @@ export function useWebSocketAlerts(explicitToken?: string | null): UseWebSocketA
         return [alert, ...current].slice(0, 50);
       });
 
+      // Send ACK back to the server
+      if (socketRef.current?.readyState === WebSocket.OPEN && alertId) {
+        socketRef.current.send(
+          JSON.stringify({
+            type: "alert_ack",
+            version: 1,
+            event_id: alertId,
+          })
+        );
+      }
+
       callbackRef.current?.(alert);
       notifyBrowser(alert);
     },
@@ -152,7 +163,7 @@ export function useWebSocketAlerts(explicitToken?: string | null): UseWebSocketA
   );
 
   const connect = useCallback(async () => {
-    const token = explicitToken !== undefined ? explicitToken : getStoredAccessToken();
+    const token = getStoredAccessToken();
 
     if (!token || !shouldReconnectRef.current) {
       setConnectionState("idle");
@@ -168,18 +179,24 @@ export function useWebSocketAlerts(explicitToken?: string | null): UseWebSocketA
 
     setConnectionState("connecting");
 
-    let url = `${getWebSocketBaseUrl()}/ws/alerts/`;
+    let ticketStr = "";
     try {
-      if (explicitToken !== undefined) {
-        url += `?token=${encodeURIComponent(token)}`;
-      } else {
-        const ticketRes = await authService.getWsTicket();
-        url += `?ticket=${encodeURIComponent(ticketRes.ticket)}`;
-      }
+      const ticketRes = await authService.getWsTicket();
+      ticketStr = ticketRes.ticket;
     } catch {
-      // Fallback to token if ticket endpoint fails
-      url += `?token=${encodeURIComponent(token)}`;
+      setConnectionState("error");
+
+      reconnectAttemptRef.current += 1;
+      const delay = Math.min(
+        1_000 * 2 ** (reconnectAttemptRef.current - 1),
+        MAX_RECONNECT_DELAY_MS
+      );
+      clearReconnectTimer();
+      reconnectTimerRef.current = window.setTimeout(connect, delay);
+      return;
     }
+
+    const url = `${getWebSocketBaseUrl()}/ws/alerts/?ticket=${encodeURIComponent(ticketStr)}`;
 
     const socket = new WebSocket(url);
     socketRef.current = socket;
@@ -221,14 +238,14 @@ export function useWebSocketAlerts(explicitToken?: string | null): UseWebSocketA
       clearReconnectTimer();
       reconnectTimerRef.current = window.setTimeout(connect, delay);
     };
-  }, [addAlertFromEvent, clearReconnectTimer, explicitToken]);
+  }, [addAlertFromEvent, clearReconnectTimer]);
 
   useEffect(() => {
     clearReconnectTimer();
     socketRef.current?.close();
     socketRef.current = null;
 
-    const token = explicitToken !== undefined ? explicitToken : getStoredAccessToken();
+    const token = getStoredAccessToken();
 
     if (!token) {
       shouldReconnectRef.current = false;
@@ -245,7 +262,7 @@ export function useWebSocketAlerts(explicitToken?: string | null): UseWebSocketA
       socketRef.current?.close();
       socketRef.current = null;
     };
-  }, [connect, clearReconnectTimer, explicitToken]);
+  }, [connect, clearReconnectTimer]);
 
   const setNotificationCallback = useCallback((callback: (alert: AlertItem) => void) => {
     callbackRef.current = callback;

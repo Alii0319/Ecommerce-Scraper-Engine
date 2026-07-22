@@ -3,9 +3,9 @@ set -e
 
 DB_HOST="${DB_HOST:-db}"
 DB_PORT="${DB_PORT:-5432}"
-DB_NAME="${DB_NAME:-postgres}"
-DB_USER="${DB_USER:-postgres}"
-DB_PASSWORD="${DB_PASSWORD:-postgres}"
+: "${DB_NAME:?DB_NAME is required}"
+: "${DB_USER:?DB_USER is required}"
+: "${DB_PASSWORD:?DB_PASSWORD is required}"
 
 echo "Waiting for PostgreSQL at ${DB_HOST}:${DB_PORT}..."
 for attempt in $(seq 1 30); do
@@ -16,9 +16,9 @@ import psycopg2
 
 try:
     conn = psycopg2.connect(
-        dbname=os.getenv('DB_NAME', 'postgres'),
-        user=os.getenv('DB_USER', 'postgres'),
-        password=os.getenv('DB_PASSWORD', 'postgres'),
+        dbname=os.environ['DB_NAME'],
+        user=os.environ['DB_USER'],
+        password=os.environ['DB_PASSWORD'],
         host=os.getenv('DB_HOST', 'db'),
         port=os.getenv('DB_PORT', '5432'),
     )

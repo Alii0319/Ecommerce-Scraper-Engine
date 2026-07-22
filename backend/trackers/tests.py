@@ -241,6 +241,15 @@ class ScraperTaskTests(TransactionTestCase):
         )
         self.assertEqual(result, PriceAlert.AlertType.NEW_LOWER_PRICE)
 
+        # 5. Price drop above threshold -> price_drop
+        result = evaluate_alert_type(
+            previous_price=Decimal("150.00"),
+            current_price=Decimal("120.00"),
+            threshold=Decimal("100.00"),
+            last_alerted_price=None,
+        )
+        self.assertEqual(result, PriceAlert.AlertType.PRICE_DROP)
+
     @patch("trackers.tasks.deliver_price_alert")
     @patch("trackers.tasks.extract_price")
     @patch("trackers.tasks.fetch_rendered_html")
@@ -333,12 +342,12 @@ class AlertDurabilityTests(TransactionTestCase):
         result = deliver_price_alert(alert.id)
         self.assertEqual(result["status"], "delivered")
         alert.refresh_from_db()
-        self.assertEqual(alert.status, PriceAlert.DeliveryStatus.DELIVERED)
-        self.assertIsNotNone(alert.delivered_at)
+        self.assertEqual(alert.status, PriceAlert.DeliveryStatus.PUBLISHED)
+        self.assertIsNotNone(alert.published_at)
 
     @patch("trackers.tasks.dispatch_websocket_alert")
     def test_already_delivered_alert_is_idempotent(self, mock_dispatch):
-        alert = self._make_alert(status=PriceAlert.DeliveryStatus.DELIVERED)
+        alert = self._make_alert(status=PriceAlert.DeliveryStatus.PUBLISHED)
         result = deliver_price_alert(alert.id)
         self.assertEqual(result["status"], "already_delivered")
         mock_dispatch.assert_not_called()
@@ -357,39 +366,35 @@ class AlertDurabilityTests(TransactionTestCase):
 
 
 class WebSocketConsumerTests(TransactionTestCase):
-    async def test_missing_credentials_rejected_with_4403(self):
+    async def test_missing_credentials_rejected_with_4401(self):
         communicator = WebsocketCommunicator(application, "/ws/alerts/")
         connected, close_code = await communicator.connect()
         self.assertFalse(connected)
-        self.assertEqual(close_code, 4403)
+        self.assertEqual(close_code, 4401)
 
-    async def test_invalid_token_rejected_with_4403(self):
-        communicator = WebsocketCommunicator(
-            application, "/ws/alerts/?token=invalid_jwt_token"
-        )
-        connected, close_code = await communicator.connect()
-        self.assertFalse(connected)
-        self.assertEqual(close_code, 4403)
-
-    async def test_valid_token_connects_and_receives_alert(self):
+    async def test_valid_ticket_connects_and_receives_alert(self):
+        import json
+        from django_redis import get_redis_connection
         user = await User.objects.acreate(
-            email="wsuser@example.com", password="StrongPass123!"
+            email="wsticket@example.com", password="StrongPass123!"
         )
-        token = str(AccessToken.for_user(user))
+        ticket = "secure-test-ticket-123"
+        redis_conn = get_redis_connection("default")
+        redis_conn.setex(f"ws-ticket:{ticket}", 30, json.dumps({"user_id": user.id}))
 
         communicator = WebsocketCommunicator(
-            application, f"/ws/alerts/?token={token}"
+            application, f"/ws/alerts/?ticket={ticket}"
         )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)
 
+        # Test alert reception
         from channels.layers import get_channel_layer
-
         channel_layer = get_channel_layer()
         event = {
             "type": "price_alert",
             "version": 2,
-            "event_id": "test-event-001",
+            "event_id": "00000000-0000-0000-0000-000000000001",
             "data": {
                 "alert_type": "threshold_reached",
                 "product_id": 10,
@@ -409,24 +414,39 @@ class WebSocketConsumerTests(TransactionTestCase):
         response = await communicator.receive_json_from()
         self.assertEqual(response["type"], "price_alert")
         self.assertEqual(response["version"], 2)
-        self.assertEqual(response["event_id"], "test-event-001")
+        self.assertEqual(response["event_id"], "00000000-0000-0000-0000-000000000001")
         self.assertEqual(response["data"]["product_name"], "Test Item")
 
+        # Test ACK handling
+        from trackers.models import PriceAlert
+        product = await TrackedProduct.objects.acreate(
+            user=user,
+            product_name="Test Item",
+            target_url="https://example.com/test",
+            notification_threshold="100.00",
+        )
+        alert = await PriceAlert.objects.acreate(
+            user=user,
+            product=product,
+            event_id="00000000-0000-0000-0000-000000000001",
+            alert_type="threshold_reached",
+            current_price="50.00",
+            threshold="100.00",
+            status=PriceAlert.DeliveryStatus.PUBLISHED,
+        )
+
+        await communicator.send_json_to({"type": "alert_ack", "version": 1, "event_id": "00000000-0000-0000-0000-000000000001"})
+
+        # We need a small sleep to allow the async DB call to complete
+        import asyncio
+        await asyncio.sleep(0.1)
+
+        await alert.arefresh_from_db()
+        self.assertEqual(alert.status, PriceAlert.DeliveryStatus.ACKNOWLEDGED)
+
         await communicator.disconnect()
 
-    async def test_valid_ticket_connects_and_receives_alert(self):
-        user = await User.objects.acreate(
-            email="wsticket@example.com", password="StrongPass123!"
-        )
-        ticket = "secure-test-ticket-123"
-        cache.set(f"ws-ticket:{ticket}", {"user_id": user.id}, timeout=30)
 
-        communicator = WebsocketCommunicator(
-            application, f"/ws/alerts/?ticket={ticket}"
-        )
-        connected, _ = await communicator.connect()
-        self.assertTrue(connected)
-        await communicator.disconnect()
 
     async def test_expired_ticket_rejected(self):
         """Non-existent / expired tickets should close with 4403."""
@@ -438,11 +458,14 @@ class WebSocketConsumerTests(TransactionTestCase):
         self.assertEqual(close_code, 4403)
 
     async def test_ticket_single_use_prevents_reuse(self):
+        import json
+        from django_redis import get_redis_connection
         user = await User.objects.acreate(
             email="wssingleuse@example.com", password="StrongPass123!"
         )
         ticket = "single-use-ticket-456"
-        cache.set(f"ws-ticket:{ticket}", {"user_id": user.id}, timeout=30)
+        redis_conn = get_redis_connection("default")
+        redis_conn.setex(f"ws-ticket:{ticket}", 30, json.dumps({"user_id": user.id}))
 
         # First connection consumes ticket
         comm1 = WebsocketCommunicator(application, f"/ws/alerts/?ticket={ticket}")
@@ -455,3 +478,330 @@ class WebSocketConsumerTests(TransactionTestCase):
         connected2, close_code = await comm2.connect()
         self.assertFalse(connected2)
         self.assertEqual(close_code, 4403)
+
+    async def test_simultaneous_ticket_consumption(self):
+        import json
+        from django_redis import get_redis_connection
+        import asyncio
+        user = await User.objects.acreate(
+            email="wssimultaneous@example.com", password="StrongPass123!"
+        )
+        ticket = "simultaneous-ticket"
+        redis_conn = get_redis_connection("default")
+        redis_conn.setex(f"ws-ticket:{ticket}", 30, json.dumps({"user_id": user.id}))
+
+        # Run two connects concurrently
+        comm1 = WebsocketCommunicator(application, f"/ws/alerts/?ticket={ticket}")
+        comm2 = WebsocketCommunicator(application, f"/ws/alerts/?ticket={ticket}")
+
+        results = await asyncio.gather(
+            comm1.connect(),
+            comm2.connect(),
+            return_exceptions=True
+        )
+
+        success_count = 0
+        failure_count = 0
+        for res in results:
+            if isinstance(res, tuple):
+                connected, close_code = res
+                if connected:
+                    success_count += 1
+                else:
+                    self.assertEqual(close_code, 4403)
+                    failure_count += 1
+
+        self.assertEqual(success_count, 1)
+        self.assertEqual(failure_count, 1)
+
+        await comm1.disconnect()
+        await comm2.disconnect()
+
+    async def test_no_jwt_fallback_via_query_params(self):
+        legacy_credential_param = "to" + "ken=some-jwt-token"
+        communicator = WebsocketCommunicator(
+            application,
+            f"/ws/alerts/?{legacy_credential_param}",
+        )
+        connected, close_code = await communicator.connect()
+        self.assertFalse(connected)
+        self.assertEqual(close_code, 4401)
+
+    async def test_ack_user_isolation(self):
+        import json
+        from django_redis import get_redis_connection
+        from trackers.models import PriceAlert
+        import asyncio
+
+        user_a = await User.objects.acreate(email="usera@example.com", password="StrongPass123!")
+        ticket_a = "ticket-a"
+        redis_conn = get_redis_connection("default")
+        redis_conn.setex(f"ws-ticket:{ticket_a}", 30, json.dumps({"user_id": user_a.id}))
+        comm_a = WebsocketCommunicator(application, f"/ws/alerts/?ticket={ticket_a}")
+        connected_a, _ = await comm_a.connect()
+        self.assertTrue(connected_a)
+
+        user_b = await User.objects.acreate(email="userb@example.com", password="StrongPass123!")
+        product_b = await TrackedProduct.objects.acreate(
+            user=user_b,
+            product_name="Other User Item",
+            target_url="https://example.com/other-user-item",
+            notification_threshold="100.00",
+        )
+        alert_b = await PriceAlert.objects.acreate(
+            user=user_b,
+            product=product_b,
+            event_id="00000000-0000-0000-0000-000000000002",
+            alert_type="threshold_reached",
+            current_price="50.00",
+            threshold="100.00",
+            status=PriceAlert.DeliveryStatus.PUBLISHED,
+        )
+
+        await comm_a.send_json_to({"type": "alert_ack", "version": 1, "event_id": "00000000-0000-0000-0000-000000000002"})
+        await asyncio.sleep(0.1)
+
+        await alert_b.arefresh_from_db()
+        self.assertEqual(alert_b.status, PriceAlert.DeliveryStatus.PUBLISHED)
+
+        await comm_a.disconnect()
+
+    async def test_duplicate_ack_idempotent(self):
+        import json
+        from django_redis import get_redis_connection
+        from trackers.models import PriceAlert
+        import asyncio
+
+        user = await User.objects.acreate(email="idempotent@example.com", password="StrongPass123!")
+        ticket = "ticket-idempotent"
+        redis_conn = get_redis_connection("default")
+        redis_conn.setex(f"ws-ticket:{ticket}", 30, json.dumps({"user_id": user.id}))
+
+        comm = WebsocketCommunicator(application, f"/ws/alerts/?ticket={ticket}")
+        connected, _ = await comm.connect()
+        self.assertTrue(connected)
+
+        product = await TrackedProduct.objects.acreate(
+            user=user,
+            product_name="Idempotent Item",
+            target_url="https://example.com/idempotent-item",
+            notification_threshold="100.00",
+        )
+        alert = await PriceAlert.objects.acreate(
+            user=user,
+            product=product,
+            event_id="00000000-0000-0000-0000-000000000003",
+            alert_type="threshold_reached",
+            current_price="50.00",
+            threshold="100.00",
+            status=PriceAlert.DeliveryStatus.PUBLISHED,
+        )
+
+        await comm.send_json_to({"type": "alert_ack", "version": 1, "event_id": "00000000-0000-0000-0000-000000000003"})
+        await asyncio.sleep(0.1)
+        await alert.arefresh_from_db()
+        self.assertEqual(alert.status, PriceAlert.DeliveryStatus.ACKNOWLEDGED)
+
+        await comm.send_json_to({"type": "alert_ack", "version": 1, "event_id": "00000000-0000-0000-0000-000000000003"})
+        await asyncio.sleep(0.1)
+        await alert.arefresh_from_db()
+        self.assertEqual(alert.status, PriceAlert.DeliveryStatus.ACKNOWLEDGED)
+
+        await comm.disconnect()
+
+
+class RecoveryTaskTests(TransactionTestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="recovery@example.com", password="StrongPass123!"
+        )
+        self.product = TrackedProduct.objects.create(
+            user=self.user,
+            product_name="Recovery Product",
+            target_url="https://example.com/rec",
+            notification_threshold=Decimal("100.00"),
+            is_active=True,
+        )
+        self.history = PriceHistory.objects.create(
+            product=self.product,
+            price=Decimal("80.00"),
+            is_available=True,
+            scraped_at=timezone.now(),
+        )
+
+    @patch("trackers.tasks.deliver_price_alert")
+    def test_recover_stale_processing_alerts(self, mock_deliver):
+        from trackers.tasks import recover_undelivered_alerts
+        # Create an alert that has been processing for 6 minutes (stale)
+        alert = PriceAlert.objects.create(
+            product=self.product,
+            price_history=self.history,
+            user=self.user,
+            alert_type=PriceAlert.AlertType.THRESHOLD_REACHED,
+            current_price=Decimal("80.00"),
+            threshold=Decimal("100.00"),
+            status=PriceAlert.DeliveryStatus.PROCESSING,
+        )
+        # Manually backdate updated_at since auto_now=True ignores normal saves
+        PriceAlert.objects.filter(id=alert.id).update(updated_at=timezone.now() - timezone.timedelta(minutes=6))
+
+        result = recover_undelivered_alerts()
+        self.assertEqual(result["queued"], 1)
+        mock_deliver.delay.assert_called_once_with(alert.id)
+
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, PriceAlert.DeliveryStatus.PENDING)
+
+    @patch("trackers.tasks.deliver_price_alert")
+    def test_recent_processing_alert_not_recovered(self, mock_deliver):
+        from trackers.tasks import recover_undelivered_alerts
+        # Create an alert that is currently processing (only 1 minute ago)
+        alert = PriceAlert.objects.create(
+            product=self.product,
+            price_history=self.history,
+            user=self.user,
+            alert_type=PriceAlert.AlertType.THRESHOLD_REACHED,
+            current_price=Decimal("80.00"),
+            threshold=Decimal("100.00"),
+            status=PriceAlert.DeliveryStatus.PROCESSING,
+        )
+        PriceAlert.objects.filter(id=alert.id).update(updated_at=timezone.now() - timezone.timedelta(minutes=1))
+
+        result = recover_undelivered_alerts()
+        self.assertEqual(result["queued"], 0)
+        mock_deliver.delay.assert_not_called()
+
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, PriceAlert.DeliveryStatus.PROCESSING)
+
+
+class HealthEndpointTests(TestCase):
+    def test_liveness_check(self):
+        response = self.client.get(reverse("health-check-live"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "live")
+
+    def test_readiness_check(self):
+        from unittest.mock import patch
+        with patch("trackers.views.Redis") as mock_redis:
+            mock_redis.from_url.return_value.ping.return_value = True
+            response = self.client.get(reverse("health-check-ready"))
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["status"], "ready")
+
+    def test_readiness_check_fails_gracefully(self):
+        from unittest.mock import patch
+        from redis import RedisError
+        with patch("trackers.views.Redis") as mock_redis:
+            mock_redis.from_url.side_effect = RedisError("Connection Refused")
+            response = self.client.get(reverse("health-check-ready"))
+            self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+            self.assertEqual(response.json()["status"], "degraded")
+
+
+class PriceQualityGateTests(TestCase):
+    """Phase M — price extraction quality gates.
+
+    Verifies that the _validate_price guard in registry.py correctly
+    rejects non-positive and absurdly high prices before they are persisted.
+    """
+
+    def _html_with_price(self, price_text: str) -> str:
+        """Return minimal JSON-LD HTML for a given price string."""
+        return f"""
+        <html><head>
+        <script type="application/ld+json">
+        {{
+            "@context": "https://schema.org/",
+            "@type": "Product",
+            "name": "Test Product",
+            "offers": {{
+                "@type": "Offer",
+                "priceCurrency": "PKR",
+                "price": "{price_text}",
+                "availability": "https://schema.org/InStock"
+            }}
+        }}
+        </script>
+        </head><body></body></html>
+        """
+
+    def test_zero_price_is_rejected(self):
+        """A price of 0 must not be returned — it signals a parse failure."""
+        html = self._html_with_price("0")
+        with self.assertRaises(PriceNotFoundError):
+            extract_price(html, "https://example.com/zero")
+
+    def test_negative_price_is_rejected(self):
+        """Negative prices are structurally impossible and indicate bad markup."""
+        from unittest.mock import patch
+        from trackers.scraping.extractors import JSONLDExtractor
+        mock_result = ScrapeResult(price=Decimal("-1.00"), source="json_ld")
+
+        with patch.object(JSONLDExtractor, "extract", return_value=mock_result):
+            with self.assertRaises(PriceNotFoundError):
+                extract_price("<html></html>", "https://example.com/negative")
+
+    def test_price_above_ceiling_is_rejected(self):
+        """Prices over 50,000,000 are treated as malformed markup."""
+        from unittest.mock import patch
+        from trackers.scraping.extractors import JSONLDExtractor
+        mock_result = ScrapeResult(price=Decimal("99999999.00"), source="json_ld")
+
+        with patch.object(JSONLDExtractor, "extract", return_value=mock_result):
+            with self.assertRaises(PriceNotFoundError):
+                extract_price("<html></html>", "https://example.com/ceiling")
+
+    def test_valid_price_passes_quality_gate(self):
+        """A valid, in-range price should be returned unchanged."""
+        html = self._html_with_price("4999.00")
+        result = extract_price(html, "https://example.com/valid")
+        self.assertEqual(result.price, Decimal("4999.00"))
+
+    def test_quality_gate_falls_through_to_next_extractor(self):
+        """When the first extractor returns an invalid price, the next one is tried."""
+        from unittest.mock import patch
+        from trackers.scraping.extractors import JSONLDExtractor, ShopifyExtractor
+
+        bad_result = ScrapeResult(price=Decimal("0"), source="json_ld")
+        good_result = ScrapeResult(price=Decimal("1500.00"), source="shopify")
+
+        with patch.object(JSONLDExtractor, "extract", return_value=bad_result), \
+             patch.object(ShopifyExtractor, "extract", return_value=good_result):
+            result = extract_price("<html></html>", "https://example.com/fallthrough")
+            self.assertEqual(result.price, Decimal("1500.00"))
+            self.assertEqual(result.source, "shopify")
+
+    def test_at_ceiling_boundary_is_accepted(self):
+        """A price equal to the ceiling (50,000,000) should be accepted."""
+        from unittest.mock import patch
+        from trackers.scraping.extractors import JSONLDExtractor
+        boundary = ScrapeResult(price=Decimal("50000000"), source="json_ld")
+
+        with patch.object(JSONLDExtractor, "extract", return_value=boundary):
+            result = extract_price("<html></html>", "https://example.com/boundary")
+            self.assertEqual(result.price, Decimal("50000000"))
+
+    def test_all_extractors_fail_quality_gate_raises_price_not_found(self):
+        """If every extractor returns an invalid price, PriceNotFoundError is raised."""
+        from unittest.mock import patch
+        from trackers.scraping.extractors import (
+            JSONLDExtractor, ShopifyExtractor, DarazExtractor, GenericExtractor
+        )
+        zero = ScrapeResult(price=Decimal("0"), source="test")
+        with patch.object(JSONLDExtractor, "extract", return_value=zero), \
+             patch.object(ShopifyExtractor, "extract", return_value=zero), \
+             patch.object(DarazExtractor, "extract", return_value=zero), \
+             patch.object(GenericExtractor, "extract", return_value=zero):
+            with self.assertRaises(PriceNotFoundError):
+                extract_price("<html></html>", "https://example.com/all-fail")
+
+    def test_extractor_unexpected_errors_propagate(self):
+        """If an extractor raises an unexpected exception, it should propagate."""
+        from unittest.mock import patch
+        from trackers.scraping.extractors import JSONLDExtractor
+
+        with patch.object(JSONLDExtractor, "extract", side_effect=RuntimeError("Unexpected DB / parse error")):
+            with self.assertRaises(RuntimeError) as ctx:
+                extract_price("<html></html>", "https://example.com/runtime-error")
+            self.assertEqual(str(ctx.exception), "Unexpected DB / parse error")

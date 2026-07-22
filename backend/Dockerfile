@@ -22,9 +22,11 @@ FROM python:3.11-slim
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install --no-install-recommends -y \
+    chromium \
     libpq5 \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -35,15 +37,16 @@ COPY --from=builder /app/requirements.txt .
 RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt && \
     rm -rf /wheels
 
-# Install Playwright and Chromium browser binary (Keep before COPY . to cache this layer)
-RUN playwright install chromium && playwright install-deps chromium
-
 # Create directory for static files
 RUN mkdir -p /app/staticfiles
 
 # Copy project files
 COPY . .
-RUN chmod +x /app/docker-entrypoint.sh
+RUN useradd --create-home --shell /usr/sbin/nologin appuser && \
+    chown -R appuser:appuser /app && \
+    chmod +x /app/docker-entrypoint.sh
+
+USER appuser
 
 EXPOSE 8000
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

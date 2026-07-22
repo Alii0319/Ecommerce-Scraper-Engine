@@ -17,7 +17,7 @@ class JSONLDExtractor(BaseExtractor):
 
             try:
                 data = json.loads(script.string)
-            except Exception:
+            except json.JSONDecodeError:
                 continue
 
             result = self._parse_schema(data)
