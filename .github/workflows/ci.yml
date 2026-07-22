@@ -17,9 +17,7 @@ jobs:
           fetch-depth: 0
 
       - name: Secret scan
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect --source=/repo --redact --verbose
 
       - name: Create .env file for CI
         run: |
@@ -51,11 +49,16 @@ jobs:
       - name: Start backend service
         run: docker compose up -d --wait web celery celery-beat
 
-      - name: Install security audit tool
-        run: docker compose exec -T web python -m pip install --user pip-audit coverage
+      - name: Install coverage tool
+        run: docker compose exec -T web python -m pip install --user coverage
 
       - name: Backend Security Audit
-        run: docker compose exec -T web python -m pip_audit --progress-spinner off --timeout 10
+        run: |
+          docker run --rm \
+            -v "$PWD/backend:/app" \
+            -w /app \
+            python:3.11-slim \
+            sh -c "python -m pip install --upgrade pip==26.1.2 pip-audit && python -m pip_audit -r requirements.txt --no-deps --progress-spinner off --timeout 10"
 
       - name: Django system checks
         run: docker compose exec -T web python manage.py check
