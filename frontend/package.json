@@ -9,7 +9,8 @@
     "typecheck": "tsc -b",
     "lint": "tsc -b",
     "preview": "vite preview",
-    "test": "vitest --configLoader runner"
+    "test": "vitest --configLoader runner",
+    "test:watch": "vitest --configLoader runner"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.0.4",
