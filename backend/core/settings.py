@@ -141,16 +141,25 @@ TEMPLATES = [
 ]
 
 # Complete Relational Datastore Mapping using environment isolation
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME'),
-        'USER': os.getenv('DB_USER'),
-        'PASSWORD': os.getenv('DB_PASSWORD'),
-        'HOST': os.getenv('DB_HOST'),
-        'PORT': os.getenv('DB_PORT'),
+db_engine = os.getenv('DB_ENGINE', 'django.db.backends.postgresql')
+if db_engine == 'django.db.backends.sqlite3':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': os.getenv('DB_NAME', str(BASE_DIR / 'db.sqlite3')),
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': db_engine,
+            'NAME': os.getenv('DB_NAME', 'scraper_db'),
+            'USER': os.getenv('DB_USER', 'postgres'),
+            'PASSWORD': os.getenv('DB_PASSWORD', 'root'),
+            'HOST': os.getenv('DB_HOST', 'localhost'),
+            'PORT': os.getenv('DB_PORT', '5432'),
+        }
+    }
 
 # Framework Extension Settings (DRF & Authentication Strategy)
 REST_FRAMEWORK = {
@@ -198,17 +207,26 @@ USE_IN_MEMORY_CHANNEL_LAYER = (
     os.getenv('USE_IN_MEMORY_CHANNEL_LAYER', 'False').lower() in ('true', '1', 'yes')
 )
 
-CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': REDIS_URL,
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+USE_LOCMEM_CACHE = os.getenv('USE_LOCMEM_CACHE', 'False').lower() in ('true', '1', 'yes')
+
+if USE_LOCMEM_CACHE:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
         }
     }
-}
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': REDIS_URL,
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            }
+        }
+    }
 
-if DEBUG and USE_IN_MEMORY_CHANNEL_LAYER:
+if USE_IN_MEMORY_CHANNEL_LAYER:
     CHANNEL_LAYERS = {
         'default': {
             'BACKEND': 'channels.layers.InMemoryChannelLayer',
