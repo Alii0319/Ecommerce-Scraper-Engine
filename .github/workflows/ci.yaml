@@ -164,7 +164,7 @@ jobs:
           name: frontend-image
 
       - name: Scan backend image tar
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           input: 'backend-image.tar'
           format: table
@@ -172,7 +172,7 @@ jobs:
           exit-code: '1'
 
       - name: Scan frontend image tar
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           input: 'frontend-image.tar'
           format: table
