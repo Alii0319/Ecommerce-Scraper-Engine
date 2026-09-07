@@ -58,7 +58,7 @@ rpds-py==2026.6.3
 service-identity==26.1.0
 six==1.17.0
 soupsieve==2.8.4
-sqlparse==0.5.5
+sqlparse>=0.5.3
 Twisted==26.4.0
 txaio==26.6.1
 typing_extensions==4.16.0
