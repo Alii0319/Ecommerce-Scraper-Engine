@@ -26,3 +26,12 @@ celerybeat-schedule
 .vscode/
 .idea/
 .DS_Store
+
+# Extra additions
+Dockerfile*
+docker-compose*
+README.md
+docs/
+*.md
+node_modules/
+tests/

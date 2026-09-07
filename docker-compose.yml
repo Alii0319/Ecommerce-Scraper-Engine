@@ -1,16 +1,16 @@
 x-backend-environment: &backend-environment
-  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY is required}
-  DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-django-insecure-local-testing-key-12345}
+  DJANGO_DEBUG: ${DJANGO_DEBUG:-True}
   SECURE_SSL_REDIRECT: ${SECURE_SSL_REDIRECT:-False}
-  ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,web}
-  DB_NAME: ${DB_NAME:?DB_NAME is required}
-  DB_USER: ${DB_USER:?DB_USER is required}
-  DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+  ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,web,frontend}
+  DB_NAME: ${DB_NAME:-scraper_db}
+  DB_USER: ${DB_USER:-postgres}
+  DB_PASSWORD: ${DB_PASSWORD:-postgres_password}
   DB_HOST: ${DB_HOST:-db}
   DB_PORT: ${DB_PORT:-5432}
   REDIS_URL: ${REDIS_URL:-redis://redis:6379/1}
-  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost}
-  CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost,http://localhost:8080}
+  CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost,http://localhost:8080}
 
 services:
   db:
@@ -19,15 +19,15 @@ services:
     env_file:
       - .env
     environment:
-      POSTGRES_DB: ${DB_NAME:?DB_NAME is required}
-      POSTGRES_USER: ${DB_USER:?DB_USER is required}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_DB: ${DB_NAME:-scraper_db}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres_password}
     volumes:
       - db-data:/var/lib/postgresql/data
     ports:
       - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:?DB_USER is required} -d ${DB_NAME:?DB_NAME is required}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-scraper_db}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -42,7 +42,7 @@ services:
     volumes:
       - redis-data:/data
     ports:
-      - "6379:6379"
+      - "6380:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -52,12 +52,11 @@ services:
       - scraper-network
 
   migrate:
-    build: ./backend
-    image: ecommerce-scraper-engine-backend:latest
+    image: ali0319/ecom-scraper-backend:v1.0.0
     env_file:
       - .env
     environment: *backend-environment
-    command: ["sh", "-c", "python manage.py migrate --noinput && python manage.py collectstatic --noinput"]
+    command: ["python", "manage.py", "migrate", "--noinput"]
     depends_on:
       db:
         condition: service_healthy
@@ -68,15 +67,16 @@ services:
       - scraper-network
 
   web:
-    build: ./backend
-    image: ecommerce-scraper-engine-backend:latest
+    image: ali0319/ecom-scraper-backend:v1.0.0
     restart: unless-stopped
     env_file:
       - .env
     environment: *backend-environment
-    command: ["daphne", "-b", "0.0.0.0", "-p", "8000", "core.asgi:application"]
+    command: ["sh", "-c", "python manage.py collectstatic --noinput && daphne -b 0.0.0.0 -p 8000 core.asgi:application"]
     ports:
       - "8000:8000"
+    volumes:
+      - static-data:/app/staticfiles
     depends_on:
       db:
         condition: service_healthy
@@ -85,21 +85,16 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/ready/', timeout=3)\""
-        ]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/ready/"]
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 30s
+      start_period: 20s
     networks:
       - scraper-network
 
   celery:
-    build: ./backend
-    image: ecommerce-scraper-engine-backend:latest
+    image: ali0319/ecom-scraper-backend:v1.0.0
     restart: unless-stopped
     env_file:
       - .env
@@ -116,8 +111,7 @@ services:
       - scraper-network
 
   celery-beat:
-    build: ./backend
-    image: ecommerce-scraper-engine-backend:latest
+    image: ali0319/ecom-scraper-backend:v1.0.0
     restart: unless-stopped
     env_file:
       - .env
@@ -134,15 +128,10 @@ services:
       - scraper-network
 
   frontend:
-    build:
-      context: ./frontend
-      args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/}
-        VITE_WS_BASE_URL: ${VITE_WS_BASE_URL:-ws://localhost:8000}
-    image: ecommerce-scraper-engine-frontend:latest
+    image: ali0319/ecom-scraper-frontend:v1.0.0
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "8080:8080"
     depends_on:
       web:
         condition: service_healthy
@@ -152,6 +141,7 @@ services:
 volumes:
   db-data:
   redis-data:
+  static-data:
 
 networks:
   scraper-network:

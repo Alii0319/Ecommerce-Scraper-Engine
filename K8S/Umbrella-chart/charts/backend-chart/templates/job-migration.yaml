@@ -1,0 +1,71 @@
+{{- if .Values.migrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-backend-migration
+  labels:
+    app: {{ .Release.Name }}-backend-migration
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "1"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      name: {{ .Release.Name }}-backend-migration
+      labels:
+        app: {{ .Release.Name }}-backend-migration
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsUser: {{ .Values.securityContext.runAsUser }}
+        runAsGroup: {{ .Values.securityContext.runAsGroup }}
+        runAsNonRoot: {{ .Values.securityContext.runAsNonRoot }}
+      containers:
+        - name: django-migration
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Entrypoint script database wait karega phir migrate command chalaye ga
+          command: ["/usr/local/bin/docker-entrypoint.sh"]
+          args: ["python", "manage.py", "migrate", "--noinput"]
+          env:
+            # Django Configs
+            - name: DJANGO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-backend-secrets" .Release.Name) .Values.django.existingSecret }}
+                  key: DJANGO_SECRET_KEY
+            - name: DJANGO_DEBUG
+              value: {{ .Values.django.debug | quote }}
+
+            # PostgreSQL Settings
+            - name: DB_HOST
+              value: {{ .Values.database.host | quote }}
+            - name: DB_PORT
+              value: {{ .Values.database.port | quote }}
+            - name: DB_NAME
+              value: {{ .Values.database.name | quote }}
+            - name: DB_USER
+              value: {{ .Values.database.user | quote }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-backend-secrets" .Release.Name) .Values.database.existingSecret }}
+                  key: {{ default "DB_PASSWORD" .Values.database.secretPasswordKey }}
+
+            # Redis Settings
+            - name: REDIS_HOST
+              value: {{ .Values.redis.host | quote }}
+            - name: REDIS_PORT
+              value: {{ .Values.redis.port | quote }}
+            - name: REDIS_URL
+              value: {{ .Values.redis.url | quote }}
+          resources:
+            limits:
+              cpu: 300m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+{{- end }}

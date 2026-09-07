@@ -1,0 +1,94 @@
+global:
+  environment: production
+
+# -------------------------------------------------------------------
+# Bitnami PostgreSQL (OCI Chart Config)
+# -------------------------------------------------------------------
+# -------------------------------------------------------------------
+# Bitnami PostgreSQL Persistent Storage
+# -------------------------------------------------------------------
+postgresql:
+  enabled: true
+  fullnameOverride: "postgres-service"
+  primary:
+    persistence:
+      enabled: true
+      storageClass: "standard"  # Minikube ka default storageClass (ya hostpath)
+      size: 8Gi                 # Required disk size
+      accessModes:
+        - ReadWriteOnce
+  image:
+    pullPolicy: IfNotPresent
+  auth:
+    postgresPassword: "root"
+    database: "scraper_db"
+    username: "postgres"
+
+# -------------------------------------------------------------------
+# Bitnami Redis Persistent Storage
+# -------------------------------------------------------------------
+redis:
+  enabled: true
+  fullnameOverride: "redis-service"
+  architecture: standalone
+  master:
+    persistence:
+      enabled: true
+      storageClass: "standard"  # Minikube ka default storageClass
+      size: 2Gi
+      accessModes:
+        - ReadWriteOnce
+  image:
+    pullPolicy: IfNotPresent
+  auth:
+    enabled: false
+
+# -------------------------------------------------------------------
+# Backend Sub-Chart Overrides
+# -------------------------------------------------------------------
+backend-chart:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ali0319/ecom-scraper-backend
+    tag: "v1.0.0"
+    pullPolicy: IfNotPresent
+  django:
+    debug: "True"
+    secretKey: "l9hZw/Fma309Sk9jID8MIMSNUyYK7J5rGYAwsp6PX6Ye+ZL3uUg0zIEZn8jjeV7B"
+  database:
+    host: "postgres-service"
+    port: "5432"
+    name: "scraper_db"
+    user: "postgres"
+    password: "root"
+  redis:
+    host: "redis-service-master" # Bitnami Redis Standalone service name
+    port: "6379"
+    url: "redis://redis-service-master:6379/1"
+
+  celeryWorker:
+    enabled: true
+    replicaCount: 1
+
+  celeryBeat:
+    enabled: true
+
+# -------------------------------------------------------------------
+# Frontend Sub-Chart Overrides
+# -------------------------------------------------------------------
+frontend-chart:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: ali0319/ecom-scraper-frontend
+    tag: "v1.0.0"
+    pullPolicy: IfNotPresent
+
+# -------------------------------------------------------------------
+# Ingress Routing
+# -------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: "nginx"
+  host: "scraper.local"

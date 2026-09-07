@@ -1,0 +1,62 @@
+{{- if .Values.celeryWorker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-celery-worker
+  labels:
+    app: {{ .Release.Name }}-celery-worker
+spec:
+  replicas: {{ .Values.celeryWorker.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-celery-worker
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-celery-worker
+    spec:
+      securityContext:
+        runAsUser: {{ .Values.securityContext.runAsUser }}
+        runAsGroup: {{ .Values.securityContext.runAsGroup }}
+        runAsNonRoot: {{ .Values.securityContext.runAsNonRoot }}
+      containers:
+        - name: celery-worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/docker-entrypoint.sh"]
+          args: {{- toYaml .Values.celeryWorker.command | nindent 12 }}
+          env:
+            # Django Configs
+            - name: DJANGO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-backend-secrets" .Release.Name) .Values.django.existingSecret }}
+                  key: DJANGO_SECRET_KEY
+            - name: DJANGO_DEBUG
+              value: {{ .Values.django.debug | quote }}
+
+            # PostgreSQL Settings
+            - name: DB_HOST
+              value: {{ .Values.database.host | quote }}
+            - name: DB_PORT
+              value: {{ .Values.database.port | quote }}
+            - name: DB_NAME
+              value: {{ .Values.database.name | quote }}
+            - name: DB_USER
+              value: {{ .Values.database.user | quote }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-backend-secrets" .Release.Name) .Values.database.existingSecret }}
+                  key: {{ default "DB_PASSWORD" .Values.database.secretPasswordKey }}
+
+            # Redis Broker Settings
+            - name: REDIS_HOST
+              value: {{ .Values.redis.host | quote }}
+            - name: REDIS_PORT
+              value: {{ .Values.redis.port | quote }}
+            - name: REDIS_URL
+              value: {{ .Values.redis.url | quote }}
+          resources:
+            {{- toYaml .Values.celeryWorker.resources | nindent 12 }}
+{{- end }}

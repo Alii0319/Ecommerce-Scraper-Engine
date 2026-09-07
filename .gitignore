@@ -21,3 +21,5 @@ Thumbs.db
 docker-compose.override.yml
 
 db-data/
+
+K8S/scraper-chart/values-secrets.yaml

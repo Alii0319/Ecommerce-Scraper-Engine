@@ -49,7 +49,9 @@ const MAX_RECONNECT_DELAY_MS = 30_000;
 
 function getWebSocketBaseUrl(): string {
   const configured = import.meta.env.VITE_WS_BASE_URL?.trim();
-  if (configured) return configured.replace(/\/+$/, "");
+  if (configured && (configured.startsWith("ws://") || configured.startsWith("wss://"))) {
+    return configured.replace(/\/+$/, "");
+  }
 
   if (typeof window === "undefined") return "ws://localhost:8000";
 

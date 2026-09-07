@@ -1,0 +1,63 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-ingress
+  labels:
+    app: {{ .Release.Name }}-ingress
+  annotations:
+    kubernetes.io/ingress.class: {{ .Values.ingress.className | quote }}
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          # Backend API Routing
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-backend-service
+                port:
+                  number: 8000
+
+          # Django Admin Panel
+          - path: /admin
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-backend-service
+                port:
+                  number: 8000
+
+          # WebSocket Channels Connection
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-backend-service
+                port:
+                  number: 8000
+
+          # Django Static Files (Admin CSS/JS via WhiteNoise)
+          - path: /static
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-backend-service
+                port:
+                  number: 8000
+
+          # Frontend React UI Routing (Catch-all)
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-frontend-service
+                port:
+                  number: 8080
+{{- end }}

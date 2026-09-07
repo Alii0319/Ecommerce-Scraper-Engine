@@ -273,9 +273,9 @@ CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 # Configure Periodic Tasks Schedules mapping matrices
 CELERY_BEAT_SCHEDULE = {
-    'orchestrate-scraping-every-four-hours': {
+    'orchestrate-scraping-every-fifteen-minutes': {
         'task': 'trackers.tasks.orchestrate_scraping_pipeline',
-        'schedule': 14400.0,
+        'schedule': 900.0,
     },
     'recover-undelivered-alerts-every-two-minutes': {
         'task': 'trackers.tasks.recover_undelivered_alerts',

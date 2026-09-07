@@ -1,0 +1,15 @@
+dependencies:
+- name: backend-chart
+  repository: file://charts/backend-chart
+  version: 0.1.0
+- name: frontend-chart
+  repository: file://charts/frontend-chart
+  version: 0.1.0
+- name: postgresql
+  repository: oci://registry-1.docker.io/bitnamicharts
+  version: 15.5.38
+- name: redis
+  repository: oci://registry-1.docker.io/bitnamicharts
+  version: 20.1.5
+digest: sha256:518ef0d2e43525bb70aa5e5348f009d967bd42e8082e951893533c129b024320
+generated: "2026-09-06T13:20:41.354399451+05:00"

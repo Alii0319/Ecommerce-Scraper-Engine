@@ -34,7 +34,7 @@ The stack consists of 7 services:
 ## Features
 
 - **Multi-Source E-Commerce Scraping**: Crawls target product URLs using BeautifulSoup4 and Playwright (Chromium) to support dynamic pages.
-- **Scheduled Scraping**: Orchestrates periodic inventory scans every 4 hours using Celery Workers and Beat.
+- **Scheduled Scraping**: Orchestrates periodic inventory scans every 15 minutes using Celery Workers and Beat.
 - **Historical Records**: Maintains a detailed history of all price changes and product availability.
 - **Three Alert Semantics**: Dispatches `threshold_reached`, `new_lower_price`, and general `price_drop` alerts.
 - **Durable Alert Outbox**: Uses a persistent PostgreSQL outbox pattern to ensure reliable alert delivery even during worker crashes.

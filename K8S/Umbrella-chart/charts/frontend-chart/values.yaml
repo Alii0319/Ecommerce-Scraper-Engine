@@ -1,0 +1,33 @@
+replicaCount: 2
+
+image:
+  repository: ali0319/ecom-scraper-frontend
+  pullPolicy: IfNotPresent
+  tag: "v1.0.0"
+
+service:
+  type: ClusterIP
+  port: 8080
+
+securityContext:
+  runAsUser: 101
+  runAsGroup: 101
+  runAsNonRoot: true
+
+resources:
+  limits:
+    cpu: 250m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+probes:
+  liveness:
+    path: /
+    initialDelaySeconds: 10
+    periodSeconds: 20
+  readiness:
+    path: /
+    initialDelaySeconds: 5
+    periodSeconds: 10

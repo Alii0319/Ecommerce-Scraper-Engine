@@ -6,7 +6,7 @@ const resolveApiBaseUrl = (): string => {
     return configured.endsWith('/') ? configured : `${configured}/`;
   }
 
-  return 'http://127.0.0.1:8000/api/';
+  return import.meta.env.VITE_API_BASE_URL || '/api/';
 };
 
 export const API_BASE_URL = resolveApiBaseUrl();
@@ -293,7 +293,7 @@ export const extractErrorMessage = (error: any): string => {
 
 export const authService = {
   register: async (payload: RegisterPayload): Promise<RegisterResponse> => {
-    const response = await api.post<RegisterResponse>('/auth/register/', payload);
+    const response = await api.post<RegisterResponse>('auth/register/', payload);
     return response.data;
   },
   login: async (payload: LoginPayload): Promise<AuthTokens> => {

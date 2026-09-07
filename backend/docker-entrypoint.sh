@@ -8,8 +8,11 @@ DB_PORT="${DB_PORT:-5432}"
 : "${DB_PASSWORD:?DB_PASSWORD is required}"
 
 echo "Waiting for PostgreSQL at ${DB_HOST}:${DB_PORT}..."
+
+DB_READY=0
 for attempt in $(seq 1 30); do
-  python - <<'PY'
+  # Python command ki failure se set -e crash na ho is liye 'if' condition mein rakha hai
+  if python - <<'PY'
 import os
 import sys
 import psycopg2
@@ -25,16 +28,19 @@ try:
     conn.close()
     sys.exit(0)
 except Exception as exc:
-    print(f"Database connection attempt failed: {exc}", file=sys.stderr)
     sys.exit(1)
 PY
-  if [ $? -eq 0 ]; then
+  then
+    DB_READY=1
+    echo "PostgreSQL is ready!"
     break
   fi
+
+  echo "Database not ready yet (attempt $attempt/30)... sleeping 2s"
   sleep 2
 done
 
-if [ $? -ne 0 ]; then
+if [ "$DB_READY" -ne 1 ]; then
   echo "PostgreSQL did not become ready in time." >&2
   exit 1
 fi

@@ -1,0 +1,27 @@
+apiVersion: v2
+name: umbrella-chart
+description: Umbrella Helm Chart for Ecommerce Scraper Engine
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+dependencies:
+  - name: backend-chart
+    version: 0.1.0
+    repository: "file://charts/backend-chart"
+    condition: backend-chart.enabled
+
+  - name: frontend-chart
+    version: 0.1.0
+    repository: "file://charts/frontend-chart"
+    condition: frontend-chart.enabled
+
+  - name: postgresql
+    version: "15.5.38"
+    repository: "oci://registry-1.docker.io/bitnamicharts"
+    condition: postgresql.enabled
+
+  - name: redis
+    version: "20.1.5"
+    repository: "oci://registry-1.docker.io/bitnamicharts"
+    condition: redis.enabled
