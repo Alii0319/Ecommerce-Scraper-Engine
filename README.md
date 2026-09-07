@@ -56,11 +56,63 @@ The stack consists of 7 services:
    ```
 
 2. **Configure Environment Variables**:
-   Create a `.env` file from the `.env.example` template:
+   Create a `.env` file in the project root directory:
    ```bash
-   cp .env.example .env
+   touch .env
    ```
-   *Ensure you use secure placeholders for secrets (e.g. `DB_PASSWORD=replace-with-a-strong-password`).*
+   Add your credentials and configuration to `.env`:
+   ```dotenv
+   # ==============================================================================
+   # CORE DJANGO CONFIGURATION
+   # ==============================================================================
+   # Generate a secure key using: python -c 'import secrets; print(secrets.token_urlsafe(50))'
+   DJANGO_SECRET_KEY=your-secure-random-50-character-django-secret-key-here
+   DJANGO_DEBUG=True
+   SECURE_SSL_REDIRECT=False
+   ALLOWED_HOSTS=localhost,127.0.0.1,web,scraper.local
+
+   # ==============================================================================
+   # POSTGRESQL DATABASE CREDENTIALS
+   # ==============================================================================
+   DB_NAME=scraper_db
+   DB_USER=postgres
+   DB_PASSWORD=your_strong_database_password_here
+   DB_HOST=db
+   DB_PORT=5432
+
+   # ==============================================================================
+   # REDIS & CELERY BROKER CONFIGURATION
+   # ==============================================================================
+   REDIS_HOST=redis
+   REDIS_PORT=6379
+   REDIS_URL=redis://redis:6379/1
+
+   # ==============================================================================
+   # FRONTEND, CORS & CSRF CONFIGURATION
+   # ==============================================================================
+   VITE_API_BASE_URL=http://scraper.local/api
+   VITE_WS_BASE_URL=ws://scraper.local
+   CORS_ALLOWED_ORIGINS=http://localhost,http://127.0.0.1,http://localhost:5173,http://scraper.local
+   CSRF_TRUSTED_ORIGINS=http://localhost,http://127.0.0.1,http://localhost:5173,http://scraper.local
+   ```
+
+   ### 🔑 Environment Variables Reference Guide
+
+   | Variable | Description | Example / Default Value | Notes |
+   | :--- | :--- | :--- | :--- |
+   | `DJANGO_SECRET_KEY` | Django cryptographic signing key | `50+ char random string` | **Required**. Must be kept private. |
+   | `DJANGO_DEBUG` | Enable/disable Django debug mode | `True` (dev) / `False` (prod) | Set to `False` in production. |
+   | `ALLOWED_HOSTS` | Comma-separated list of valid host headers | `localhost,127.0.0.1,scraper.local` | Django security whitelist. |
+   | `DB_NAME` | PostgreSQL database name | `scraper_db` | Database created on init. |
+   | `DB_USER` | PostgreSQL user | `postgres` | Database admin / application user. |
+   | `DB_PASSWORD` | PostgreSQL password | `your_strong_password` | **Required**. Use a strong password. |
+   | `DB_HOST` | Database hostname | `db` (Docker) / `postgres-service` (K8s) | Docker Compose or K8s service name. |
+   | `DB_PORT` | Database port | `5432` | Default PostgreSQL port. |
+   | `REDIS_URL` | Redis connection URL | `redis://redis:6379/1` | Used by Channels, Celery & Caching. |
+   | `VITE_API_BASE_URL` | Frontend REST API Base URL | `/api` or `http://scraper.local/api` | Relative path `/api` is recommended for Ingress. |
+   | `VITE_WS_BASE_URL` | Frontend WebSocket Base URL | `ws://scraper.local` | Host URL for WebSocket alerts. |
+   | `CORS_ALLOWED_ORIGINS` | Comma-separated allowed CORS origins | `http://localhost,http://scraper.local` | Frontend domains allowed to make API requests. |
+   | `CSRF_TRUSTED_ORIGINS` | Comma-separated allowed CSRF origins | `http://localhost,http://scraper.local` | Trusted origins for CSRF validation. |
 
 3. **Backend Virtual Environment & Dependencies**:
    ```bash
