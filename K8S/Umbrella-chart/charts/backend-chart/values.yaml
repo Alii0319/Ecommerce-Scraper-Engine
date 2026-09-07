@@ -1,20 +1,16 @@
 replicaCount: 2
-
 image:
   repository: ali0319/ecom-scraper-backend
   pullPolicy: IfNotPresent
-  tag: "v1.0.0"
-
+  tag: "f2a820a"
 service:
   type: ClusterIP
   port: 8000
-
 # Core Django Settings
 django:
   debug: "True"
   allowedHosts: ["*"]
   secretKey: "l9hZw/Fma309Sk9jID8MIMSNUyYK7J5rGYAwsp6PX6Ye+ZL3uUg0zIEZn8jjeV7B"
-
 # Database Settings
 database:
   host: "postgres-service"
@@ -22,18 +18,15 @@ database:
   name: "scraper_db"
   user: "postgres"
   password: "root"
-
 # Redis & Cache Settings
 redis:
   host: "redis-service"
   port: "6379"
   url: "redis://redis-service:6379/1"
-
 securityContext:
   runAsUser: 10001
   runAsGroup: 10001
   runAsNonRoot: true
-
 resources:
   limits:
     cpu: 500m
@@ -41,7 +34,6 @@ resources:
   requests:
     cpu: 250m
     memory: 256Mi
-
 probes:
   liveness:
     path: /api/health/live/
@@ -51,33 +43,29 @@ probes:
     path: /api/health/live/
     initialDelaySeconds: 5
     periodSeconds: 10
-
 # Database Migration Job Configuration
 migrations:
   enabled: true
-
 # Celery Worker Configuration
 celeryWorker:
   enabled: true
-  replicaCount: 2  # Minikube par 2 replicas kafi hain
-  command: 
+  replicaCount: 2 # Minikube par 2 replicas kafi hain
+  command:
     - "celery"
     - "-A"
     - "core"
     - "worker"
     - "-l"
     - "info"
-    - "--concurrency=2"          # Force max 2 processes per pod
+    - "--concurrency=2" # Force max 2 processes per pod
     - "--max-tasks-per-child=50" # Memory leak se bachne ke liye process restart karega
   resources:
     limits:
       cpu: 500m
-      memory: 1Gi               # Memory limit ko 1Gi karein (Playwright/Selenium ho toh 2Gi)
+      memory: 1Gi # Memory limit ko 1Gi karein (Playwright/Selenium ho toh 2Gi)
     requests:
       cpu: 250m
       memory: 512Mi
-
-      
 # Celery Beat Configuration (Scheduled Tasks)
 celeryBeat:
   enabled: true
