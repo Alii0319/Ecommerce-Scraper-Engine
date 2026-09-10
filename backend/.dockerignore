@@ -26,7 +26,8 @@ celerybeat-schedule
 .vscode/
 .idea/
 .DS_Store
-
+# writing this just to trigger a ci pipline
+venv* 
 # Extra additions
 Dockerfile*
 docker-compose*
