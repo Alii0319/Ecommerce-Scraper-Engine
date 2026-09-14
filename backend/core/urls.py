@@ -15,6 +15,9 @@ urlpatterns = [
     path('api/trackers/', include('trackers.urls')),
     path('api/analytics/', include('analytics.urls')),
 
+    # metrics and monitoring endpoints
+    path('', include('django_prometheus.urls')),
+    
     # OpenAPI Generation and Auto-Documentation Interface Nodes
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
