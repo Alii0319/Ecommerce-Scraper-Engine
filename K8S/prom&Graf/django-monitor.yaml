@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ecom-backend-monitor
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: ecom-scrapper-engine-backend
+  namespaceSelector:
+    matchNames:
+      - ecom-scrapper
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

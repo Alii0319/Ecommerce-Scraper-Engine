@@ -254,19 +254,19 @@ jobs:
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Bump backend image tag
+      - name: Bump backend image tag in Umbrella Values
         run: |
-          yq -i '.image.tag = "${{ needs.build-backend.outputs.tag }}"' K8S/Umbrella-chart/charts/backend-chart/values.yaml
+          yq -i '.["backend-chart"].image.tag = "${{ needs.build-backend.outputs.tag }}"' K8S/Umbrella-chart/values.yaml
 
-      - name: Bump frontend image tag
+      - name: Bump frontend image tag in Umbrella Values
         run: |
-          yq -i '.image.tag = "${{ needs.build-frontend.outputs.tag }}"' K8S/Umbrella-chart/charts/frontend-chart/values.yaml
+          yq -i '.["frontend-chart"].image.tag = "${{ needs.build-frontend.outputs.tag }}"' K8S/Umbrella-chart/values.yaml
 
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add K8S/Umbrella-chart/charts/backend-chart/values.yaml K8S/Umbrella-chart/charts/frontend-chart/values.yaml
-          git diff --cached --quiet || git commit -m "chore: bump image tags to ${{ needs.build-backend.outputs.tag }} [skip ci]"
+          git add K8S/Umbrella-chart/values.yaml
+          git diff --cached --quiet || git commit -m "chore: bump umbrella image tags to backend-${{ needs.build-backend.outputs.tag }} [skip ci]"
           git pull --rebase
-          git push
+          git post || git push
