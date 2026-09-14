@@ -3,6 +3,9 @@ kind: Application
 metadata:
   name: ecom-scrapper-engine
   namespace: argocd
+  annotations:
+    notifications.argoproj.io/subscribe.on-deployed.email: alishakir0319@gmail.com
+    notifications.argoproj.io/subscribe.on-health-degraded.email: alishakir0319@gmail.com
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
