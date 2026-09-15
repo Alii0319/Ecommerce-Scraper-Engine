@@ -33,7 +33,7 @@ spec:
             - name: DJANGO_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-backend-secrets
+                  name: {{ default (printf "%s-backend-secrets" .Release.Name) .Values.django.existingSecret }}
                   key: DJANGO_SECRET_KEY
             - name: DJANGO_DEBUG
               value: {{ .Values.django.debug | quote }}
@@ -50,8 +50,8 @@ spec:
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-backend-secrets
-                  key: DB_PASSWORD
+                  name: {{ default (printf "%s-backend-secrets" .Release.Name) .Values.database.existingSecret }}
+                  key: {{ default "DB_PASSWORD" .Values.database.secretPasswordKey }}
 
             # Redis Broker Settings
             - name: REDIS_HOST

@@ -19,7 +19,10 @@ postgresql:
   image:
     pullPolicy: IfNotPresent
   auth:
-    postgresPassword: "root"
+    existingSecret: "backend-secrets"
+    secretKeys:
+      adminPasswordKey: "DB_PASSWORD"
+      userPasswordKey: "DB_PASSWORD"
     database: "scraper_db"
     username: "postgres"
 # -------------------------------------------------------------------
@@ -52,13 +55,14 @@ backend-chart:
     pullPolicy: IfNotPresent
   django:
     debug: "True"
-    secretKey: "l9hZw/Fma309Sk9jID8MIMSNUyYK7J5rGYAwsp6PX6Ye+ZL3uUg0zIEZn8jjeV7B"
+    existingSecret: "backend-secrets"
   database:
     host: "postgres-service"
     port: "5432"
     name: "scraper_db"
     user: "postgres"
-    password: "root"
+    existingSecret: "backend-secrets"
+    secretPasswordKey: "DB_PASSWORD"
   redis:
     host: "redis-service-master" # Bitnami Redis Standalone service name
     port: "6379"

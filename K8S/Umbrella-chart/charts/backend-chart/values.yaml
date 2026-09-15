@@ -10,14 +10,18 @@ service:
 django:
   debug: "True"
   allowedHosts: ["*"]
-  secretKey: "l9hZw/Fma309Sk9jID8MIMSNUyYK7J5rGYAwsp6PX6Ye+ZL3uUg0zIEZn8jjeV7B"
+  existingSecret: "backend-secrets"
+  # secretKey: "" # Injected from backend-secrets
+
 # Database Settings
 database:
   host: "postgres-service"
   port: "5432"
   name: "scraper_db"
   user: "postgres"
-  password: "root"
+  existingSecret: "backend-secrets"
+  secretPasswordKey: "DB_PASSWORD"
+  # password: "" # Injected from backend-secrets
 # Redis & Cache Settings
 redis:
   host: "redis-service"
